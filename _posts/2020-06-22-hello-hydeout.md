@@ -3,9 +3,12 @@ title: Github.io 블로그 시작하기
 excerpt_separator:  <!--more-->
 
 categories:
-  - Git
+  - story
 tags:
-  - GitBlog
+  - devblog, GitBlog
 ---
 
-개발용 블로그 시작.
+
+2020.06.29
+
+블로그 시작.
