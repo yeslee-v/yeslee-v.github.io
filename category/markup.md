@@ -1,6 +1,6 @@
 ---
 layout: category
-title: Markup
+title: Tutorials
 ---
 
-Another sample category page.
+for python
