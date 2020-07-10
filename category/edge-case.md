@@ -1,6 +1,6 @@
 ---
 layout: category
-title: Edge Case
+title: how to use this blog?
 ---
 
 Sample category page. You need to create a page for each category.
