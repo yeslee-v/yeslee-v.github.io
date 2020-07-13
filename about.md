@@ -1,11 +1,11 @@
 ---
 layout: page
-title: About Me
+title: About
 sidebar_link: true
 ---
 
 <p class="intro-message">
-안녕하세요.
+Hello!
 </p>
 <!-- <p class="message">
   Hey there! This page is included as an example. Feel free to customize it
