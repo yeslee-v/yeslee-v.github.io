@@ -1,3 +1,18 @@
+category_list:
+  [
+    nodejs,
+    javascript,
+    tip,
+    diary,
+    linux,
+    chatbot,
+    php,
+    publishing,
+    jekyll,
+    sql,
+    error,
+  ]
+
 # Dependencies
 markdown: kramdown
 highlighter: rouge
