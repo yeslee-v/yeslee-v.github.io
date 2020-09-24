@@ -1,6 +1,8 @@
 ---
-layout: category
+layout: post
 title: how to use this blog?
+comments: true
+excerpt_separator: <!--more-->
 ---
 
 Sample category page. You need to create a page for each category.
