@@ -35,6 +35,38 @@ jobs:
           echo 'a426953011b24c2ea5afc19a721c8a2e704e8fd72caffbd31e96607f0392feda  /tmp/commute-rush-source.tar.gz' | sha256sum --check
           tar -xzf /tmp/commute-rush-source.tar.gz
 
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('commute-rush-game/src/game/GameScene.ts')
+          source = path.read_text(encoding='utf-8')
+          replacements = [
+              (
+                  """    right: Phaser.Input.Keyboard.Key;\n    restart: Phaser.Input.Keyboard.Key;""",
+                  """    right: Phaser.Input.Keyboard.Key;""",
+              ),
+              (
+                  """    if (isTerminalState(this.state)) {\n      if (Phaser.Input.Keyboard.JustDown(this.keys.restart)) {\n        this.scene.restart();\n      }\n      return;\n    }""",
+                  """    if (isTerminalState(this.state)) {\n      return;\n    }""",
+              ),
+              (
+                  """      right: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D),\n      restart: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.R),\n    };\n\n    this.cameras.main.startFollow""",
+                  """      right: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D),\n    };\n\n    keyboard.on('keydown-R', this.handleRestartKey, this);\n\n    this.cameras.main.startFollow""",
+              ),
+              (
+                  """  private handleShutdown(): void {\n    if (window.__COMMUTE_RUSH_TEST__) {""",
+                  """  private handleRestartKey(): void {\n    if (isTerminalState(this.state)) {\n      this.scene.restart();\n    }\n  }\n\n  private handleShutdown(): void {\n    this.input.keyboard?.off('keydown-R', this.handleRestartKey, this);\n\n    if (window.__COMMUTE_RUSH_TEST__) {""",
+              ),
+          ]
+
+          for old, new in replacements:
+              if old not in source:
+                  raise SystemExit(f'Expected source fragment not found: {old[:80]!r}')
+              source = source.replace(old, new, 1)
+
+          path.write_text(source, encoding='utf-8')
+          PY
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
