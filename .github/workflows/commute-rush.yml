@@ -1,0 +1,85 @@
+name: Commute Rush build, test, and publish
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.bootstrap/commute-rush-source.tar.gz.b64'
+      - 'commute-rush-game/**'
+      - '.github/workflows/commute-rush.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: commute-rush-publish
+  cancel-in-progress: true
+
+jobs:
+  build-test-publish:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Restore bootstrapped source
+        if: ${{ hashFiles('.bootstrap/commute-rush-source.tar.gz.b64') != '' }}
+        run: |
+          rm -rf commute-rush-game
+          base64 --decode .bootstrap/commute-rush-source.tar.gz.b64 | tar -xz
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: commute-rush-game
+        run: npm install
+
+      - name: Type-check and build
+        working-directory: commute-rush-game
+        run: npm run build
+
+      - name: Install Chromium for Playwright
+        working-directory: commute-rush-game
+        run: npx playwright install --with-deps chromium
+
+      - name: Run browser scenarios
+        working-directory: commute-rush-game
+        run: npm run test:e2e
+
+      - name: Upload browser report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: commute-rush-playwright-report
+          path: commute-rush-game/playwright-report
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Stage static GitHub Pages output
+        run: |
+          rm -rf commute-rush
+          mkdir -p commute-rush
+          cp -R commute-rush-game/dist/. commute-rush/
+          touch commute-rush/.nojekyll
+
+      - name: Commit verified source and deployment output
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add commute-rush-game commute-rush .github/workflows/commute-rush.yml
+          if [ -f .bootstrap/commute-rush-source.tar.gz.b64 ]; then
+            git rm -f .bootstrap/commute-rush-source.tar.gz.b64
+          fi
+          if git diff --cached --quiet; then
+            echo 'No verified changes to publish.'
+            exit 0
+          fi
+          git commit -m 'chore: publish commute rush prototype'
+          git push origin HEAD:main
