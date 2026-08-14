@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - '.bootstrap/commute-rush-source.tar.gz.b64'
+      - '.bootstrap/commute-rush-source.part-*'
       - 'commute-rush-game/**'
       - '.github/workflows/commute-rush.yml'
   workflow_dispatch:
@@ -27,15 +27,18 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Restore bootstrapped source
-        if: ${{ hashFiles('.bootstrap/commute-rush-source.tar.gz.b64') != '' }}
+        if: ${{ hashFiles('.bootstrap/commute-rush-source.part-*') != '' }}
         run: |
           rm -rf commute-rush-game
-          base64 --decode .bootstrap/commute-rush-source.tar.gz.b64 | tar -xz
+          cat .bootstrap/commute-rush-source.part-* > /tmp/commute-rush-source.b64
+          base64 --decode /tmp/commute-rush-source.b64 > /tmp/commute-rush-source.tar.gz
+          echo '0333eef40f97ef3a7508bed0872f47bc69c0f5e910cd9dcdc6b8dc8b668c748e  /tmp/commute-rush-source.tar.gz' | sha256sum --check
+          tar -xzf /tmp/commute-rush-source.tar.gz
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Install dependencies
         working-directory: commute-rush-game
@@ -74,8 +77,8 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add commute-rush-game commute-rush .github/workflows/commute-rush.yml
-          if [ -f .bootstrap/commute-rush-source.tar.gz.b64 ]; then
-            git rm -f .bootstrap/commute-rush-source.tar.gz.b64
+          if compgen -G '.bootstrap/commute-rush-source*' > /dev/null; then
+            git rm -f .bootstrap/commute-rush-source*
           fi
           if git diff --cached --quiet; then
             echo 'No verified changes to publish.'
