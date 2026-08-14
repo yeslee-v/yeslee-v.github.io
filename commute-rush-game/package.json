@@ -1,0 +1,20 @@
+{
+  "name": "commute-rush-prototype",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "phaser": "3.90.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.50.1",
+    "typescript": "5.7.3",
+    "vite": "5.4.14"
+  }
+}

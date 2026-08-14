@@ -1,0 +1,1 @@
+{"root":["./src/main.ts","./src/vite-env.d.ts","./src/game/GameScene.ts","./src/game/config.ts","./src/game/types.ts","./vite.config.ts","./playwright.config.ts","./tests/game.spec.ts"],"version":"5.7.3"}
