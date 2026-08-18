@@ -3,6 +3,7 @@ import {
   DOOR_LEFT,
   DOOR_RIGHT,
   PLATFORM_BOTTOM,
+  SAFE_ZONE_Y,
   TRAIN_FLOOR,
   TRAIN_TOP,
   VIEW_HEIGHT,
@@ -24,7 +25,7 @@ export class Renderer {
   render(game: Game): void {
     const ctx = this.ctx;
     ctx.save();
-    const shakeAmount = game.shake > 0 ? game.shake * 14 : 0;
+    const shakeAmount = game.shake > 0 ? game.shake * 7 : 0;
     ctx.translate((Math.random() - 0.5) * shakeAmount, (Math.random() - 0.5) * shakeAmount);
     this.drawBackground(game);
     this.drawCoffee(game);
@@ -55,8 +56,10 @@ export class Renderer {
     ctx.fillStyle = "#a9bcc5";
     ctx.fillRect(24, TRAIN_TOP + 42, VIEW_WIDTH - 48, 9);
     ctx.fillStyle = "#cbd7dc";
-    ctx.fillRect(44, TRAIN_TOP + 62, 255, 96);
-    ctx.fillRect(661, TRAIN_TOP + 62, 255, 96);
+    ctx.fillRect(44, TRAIN_TOP + 62, 340, 136);
+    ctx.fillRect(576, TRAIN_TOP + 62, 340, 136);
+    ctx.fillStyle = "#d8e1e4";
+    ctx.fillRect(44, TRAIN_TOP + 207, 872, TRAIN_FLOOR - TRAIN_TOP - 212);
     ctx.fillStyle = "#78909c";
     for (let x = 70; x < 900; x += 132) ctx.fillRect(x, TRAIN_TOP + 8, 66, 8);
 
@@ -78,6 +81,14 @@ export class Renderer {
     ctx.beginPath();
     ctx.moveTo(DOOR_LEFT, TRAIN_FLOOR + 10);
     ctx.lineTo(DOOR_RIGHT, TRAIN_FLOOR + 10);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.strokeStyle = "rgba(85,214,219,0.34)";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([7, 8]);
+    ctx.beginPath();
+    ctx.moveTo(DOOR_LEFT + 8, SAFE_ZONE_Y);
+    ctx.lineTo(DOOR_RIGHT - 8, SAFE_ZONE_Y);
     ctx.stroke();
     ctx.setLineDash([]);
   }
@@ -102,25 +113,39 @@ export class Renderer {
     ctx.strokeRect(DOOR_RIGHT - halfWidth, TRAIN_TOP + 50, halfWidth, TRAIN_FLOOR - TRAIN_TOP - 42);
   }
 
-  private drawPersonBase(x: number, y: number, radius: number, bodyColor: string, squash: number): void {
+  private drawPersonBase(
+    x: number,
+    y: number,
+    radius: number,
+    shirtColor: string,
+    pantsColor: string,
+    skinTone: string,
+    squash: number,
+    widthScale = 1,
+    heightScale = 1,
+    headScale = 1,
+  ): void {
     const ctx = this.ctx;
     ctx.save();
     ctx.translate(x, y);
-    ctx.scale(1 + squash * 0.55, 1 - squash * 0.45);
+    ctx.scale((1 + squash * 0.55) * widthScale, (1 - squash * 0.45) * heightScale);
     ctx.fillStyle = "rgba(0,0,0,0.22)";
     ctx.beginPath();
     ctx.ellipse(0, radius * 0.85, radius * 0.85, 6, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = bodyColor;
-    this.roundRect(-radius * 0.72, -radius * 0.05, radius * 1.44, radius * 1.25, 7);
+    ctx.fillStyle = pantsColor;
+    this.roundRect(-radius * 0.68, radius * 0.42, radius * 1.36, radius * 0.78, 6);
     ctx.fill();
-    ctx.fillStyle = "#f1c6a8";
+    ctx.fillStyle = shirtColor;
+    this.roundRect(-radius * 0.74, -radius * 0.08, radius * 1.48, radius * 0.78, 8);
+    ctx.fill();
+    ctx.fillStyle = skinTone;
     ctx.beginPath();
-    ctx.arc(0, -radius * 0.55, radius * 0.53, 0, Math.PI * 2);
+    ctx.arc(0, -radius * 0.6, radius * 0.5 * headScale, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = "#25333a";
     ctx.beginPath();
-    ctx.arc(0, -radius * 0.68, radius * 0.51, Math.PI, Math.PI * 2);
+    ctx.arc(0, -radius * 0.71, radius * 0.49 * headScale, Math.PI, Math.PI * 2);
     ctx.fill();
     ctx.restore();
   }
@@ -134,7 +159,15 @@ export class Renderer {
       ctx.arc(player.position.x, player.position.y, 28 + Math.sin(performance.now() * 0.03) * 3, 0, Math.PI * 2);
       ctx.stroke();
     }
-    this.drawPersonBase(player.position.x, player.position.y, player.radius, player.caffeineTime > 0 ? "#f7b733" : COLORS.blue, player.squash);
+    this.drawPersonBase(
+      player.position.x,
+      player.position.y,
+      player.radius,
+      player.caffeineTime > 0 ? "#f7b733" : COLORS.blue,
+      "#244a88",
+      "#efbb96",
+      player.squash,
+    );
     ctx.fillStyle = COLORS.white;
     ctx.font = "900 11px system-ui";
     ctx.textAlign = "center";
@@ -142,12 +175,24 @@ export class Renderer {
   }
 
   private drawNpc(npc: Npc): void {
-    const color = npc.kind === "alighter" ? "#ef665b" : npc.kind === "rival" ? "#8d69d5" : `hsl(${npc.tint} 42% 48%)`;
-    this.drawPersonBase(npc.position.x, npc.position.y, npc.radius, color, npc.squash);
+    const color = npc.kind === "alighter" ? "#ef665b" : npc.kind === "rival" ? "#8d69d5" : `hsl(${npc.tint} 45% 46%)`;
+    const pants = `hsl(${npc.pantsTint} 24% 27%)`;
+    this.drawPersonBase(
+      npc.position.x,
+      npc.position.y,
+      npc.radius,
+      color,
+      pants,
+      npc.skinTone,
+      npc.squash,
+      npc.widthScale,
+      npc.heightScale,
+      npc.headScale,
+    );
     const ctx = this.ctx;
     if (npc.kind === "backpack") {
       ctx.fillStyle = "#4b3428";
-      this.roundRect(npc.position.x + npc.radius * 0.38, npc.position.y - 3, npc.radius * 0.8, npc.radius * 1.18, 7);
+      this.roundRect(npc.position.x + npc.radius * 0.35, npc.position.y - 5, npc.radius * 0.92, npc.radius * 1.34, 8);
       ctx.fill();
       ctx.strokeStyle = "#241c17";
       ctx.lineWidth = 3;
@@ -195,6 +240,27 @@ export class Renderer {
 
   private drawEffects(game: Game): void {
     const ctx = this.ctx;
+    for (const impact of game.impacts) {
+      const alpha = Math.min(1, impact.life * 5);
+      const scale = (impact.strong ? 34 : 24) * (1.3 - impact.life);
+      ctx.save();
+      ctx.translate(impact.position.x, impact.position.y);
+      ctx.rotate(performance.now() * 0.008);
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = impact.color;
+      ctx.beginPath();
+      for (let point = 0; point < 16; point++) {
+        const radius = point % 2 === 0 ? scale : scale * 0.42;
+        const angle = point * Math.PI / 8;
+        const x = Math.cos(angle) * radius;
+        const y = Math.sin(angle) * radius;
+        if (point === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
     for (const burst of game.bursts) {
       ctx.globalAlpha = Math.min(1, burst.life * 4);
       ctx.fillStyle = burst.color;
@@ -204,8 +270,11 @@ export class Renderer {
     for (const text of game.texts) {
       ctx.globalAlpha = Math.min(1, text.life * 2.5);
       ctx.fillStyle = text.color;
-      ctx.font = "900 20px system-ui";
+      ctx.font = "900 24px system-ui";
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = "rgba(8,16,21,0.8)";
       ctx.textAlign = "center";
+      ctx.strokeText(text.text, text.position.x, text.position.y - 34);
       ctx.fillText(text.text, text.position.x, text.position.y - 34);
     }
     ctx.globalAlpha = 1;
@@ -228,16 +297,30 @@ export class Renderer {
     ctx.fillStyle = game.timeRemaining <= 3 ? COLORS.red : COLORS.white;
     ctx.font = "900 25px system-ui";
     ctx.fillText(`문 닫힘까지 ${Math.ceil(game.timeRemaining).toString().padStart(2, "0")}`, 480, 56);
+    ctx.textAlign = "right";
+    ctx.font = "900 20px system-ui";
+    for (let heart = 0; heart < 3; heart++) {
+      ctx.fillStyle = heart < game.lives ? COLORS.red : "#42515a";
+      ctx.fillText(heart < game.lives ? "♥" : "♡", 902 - (2 - heart) * 27, 56);
+    }
     if (game.player.caffeineTime > 0) {
       ctx.textAlign = "right";
       ctx.fillStyle = COLORS.yellow;
-      ctx.font = "900 17px system-ui";
-      ctx.fillText(`☕ CAFFEINE ${game.player.caffeineTime.toFixed(1)}s`, 904, 56);
+      ctx.font = "900 14px system-ui";
+      ctx.fillText(`☕ ${game.player.caffeineTime.toFixed(1)}s`, 755, 56);
     }
     if (game.timeRemaining <= 3 && game.phase === GamePhase.Playing) {
-      ctx.globalAlpha = 0.16 + (Math.sin(performance.now() * 0.018) + 1) * 0.08;
+      const blink = Math.floor(performance.now() / 180) % 2 === 0;
+      ctx.fillStyle = blink ? COLORS.red : "#5a2528";
+      ctx.beginPath();
+      ctx.arc(DOOR_LEFT - 20, TRAIN_TOP + 20, 8, 0, Math.PI * 2);
+      ctx.arc(DOOR_RIGHT + 20, TRAIN_TOP + 20, 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.textAlign = "center";
       ctx.fillStyle = COLORS.red;
-      ctx.fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
+      ctx.globalAlpha = 0.82;
+      ctx.font = "900 58px system-ui";
+      ctx.fillText(String(Math.max(1, Math.ceil(game.timeRemaining))), 480, 132);
       ctx.globalAlpha = 1;
     }
   }
@@ -264,10 +347,22 @@ export class Renderer {
       ctx.fillText("탑승 성공!", 480, 276);
       ctx.fillStyle = COLORS.white;
       ctx.font = "700 18px system-ui";
-      ctx.fillText("문이 닫히기 전에 몸 전체를 넣었습니다.", 480, 316);
+      ctx.fillText("안쪽까지 완전히 밀고 들어갔습니다.", 480, 316);
       ctx.fillStyle = COLORS.yellow;
       ctx.font = "800 15px system-ui";
       ctx.fillText(game.stageIndex < STAGES.length - 1 ? "SPACE 다음 스테이지  ·  R 다시 하기" : "SPACE 처음부터  ·  R 다시 하기", 480, 354);
+    } else if (game.phase === GamePhase.GameOver) {
+      this.centerPanel();
+      ctx.fillStyle = COLORS.red;
+      ctx.font = "900 38px system-ui";
+      ctx.textAlign = "center";
+      ctx.fillText("GAME OVER", 480, 270);
+      ctx.fillStyle = COLORS.white;
+      ctx.font = "700 18px system-ui";
+      ctx.fillText("이번 열차도 실패.", 480, 313);
+      ctx.fillStyle = COLORS.yellow;
+      ctx.font = "800 16px system-ui";
+      ctx.fillText("R 다시 시작", 480, 352);
     } else if (game.phase === GamePhase.Failed) {
       this.centerPanel();
       const lines = this.failureCopy(game.failureReason);
@@ -278,20 +373,25 @@ export class Renderer {
       ctx.fillStyle = COLORS.white;
       ctx.font = "700 18px system-ui";
       ctx.fillText(lines[1], 480, 316);
-      ctx.fillStyle = COLORS.yellow;
-      ctx.font = "800 16px system-ui";
-      ctx.fillText("R 바로 다시 하기", 480, 354);
+      ctx.fillStyle = "#a9bac2";
+      ctx.font = "800 15px system-ui";
+      ctx.fillText(`남은 기회 ${game.lives}`, 480, 352);
     }
 
     if (game.phase === GamePhase.Playing && game.tutorialTime > 0) {
-      const instruction = game.stageIndex === 0 ? "방향키 / WASD 이동" : "SPACE 비집기";
+      const instruction = game.stageIndex === 0 ? "방향키 / WASD" : "SPACE";
+      const subInstruction = game.stageIndex === 0 ? "움직이기" : "비집기";
+      const panelY = Math.max(330, game.player.position.y - 115);
       ctx.fillStyle = "rgba(8,16,21,0.88)";
-      this.roundRect(350, 470, 260, 54, 13);
+      this.roundRect(game.player.position.x - 95, panelY, 190, 67, 13);
       ctx.fill();
       ctx.fillStyle = COLORS.white;
       ctx.font = "900 19px system-ui";
       ctx.textAlign = "center";
-      ctx.fillText(instruction, 480, 504);
+      ctx.fillText(instruction, game.player.position.x, panelY + 27);
+      ctx.fillStyle = "#9fb1ba";
+      ctx.font = "700 13px system-ui";
+      ctx.fillText(subInstruction, game.player.position.x, panelY + 49);
     }
   }
 
@@ -306,7 +406,7 @@ export class Renderer {
   }
 
   private failureCopy(reason?: FailureReason): [string, string] {
-    if (reason === FailureReason.Stuck) return ["끼였다.", "출근은 쉽지 않다."];
+    if (reason === FailureReason.Stuck) return ["끼였다.", "조금만 더 들어갔어야 했다."];
     if (reason === FailureReason.PushedOut) return ["밀려났다.", "이번 열차도 안녕."];
     return ["문 닫힘.", "또 놓쳤다."];
   }

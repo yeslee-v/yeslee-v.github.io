@@ -4,6 +4,7 @@ import {
   PLATFORM_BOTTOM,
   PLAYER_RADIUS,
   PLAYER_START,
+  SAFE_ZONE_Y,
   TRAIN_FLOOR,
   VIEW_WIDTH,
 } from "./constants";
@@ -15,7 +16,9 @@ import {
   type Burst,
   type FloatingText,
   type GameSnapshot,
+  type ImpactMark,
   type Npc,
+  type NpcBody,
   type NpcKind,
   type Player,
   type Vec2,
@@ -28,12 +31,15 @@ const normalize = (vector: Vec2): Vec2 => {
   return magnitude > 0.001 ? { x: vector.x / magnitude, y: vector.y / magnitude } : { x: 0, y: -1 };
 };
 
-const KIND_STATS: Record<NpcKind, { radius: number; resistance: number }> = {
-  normal: { radius: 19, resistance: 1.35 },
-  backpack: { radius: 27, resistance: 3.25 },
-  alighter: { radius: 20, resistance: 2.15 },
-  rival: { radius: 19, resistance: 1.55 },
+const BODY_STATS: Record<NpcBody, { radius: number; resistance: number; height: number; width: number }> = {
+  slim: { radius: 21, resistance: 0.85, height: 0.96, width: 0.78 },
+  normal: { radius: 25, resistance: 1.35, height: 1, width: 1 },
+  tall: { radius: 25, resistance: 1.35, height: 1.2, width: 0.96 },
+  large: { radius: 30, resistance: 2.3, height: 1.06, width: 1.2 },
+  backpack: { radius: 33, resistance: 3.75, height: 1.04, width: 1.14 },
 };
+
+const SKIN_TONES = ["#f2c8a8", "#dca27e", "#b97855", "#8f563f"];
 
 export class Game {
   readonly player: Player = {
@@ -52,19 +58,26 @@ export class Game {
   phase = GamePhase.Ready;
   failureReason?: FailureReason;
   timeRemaining = STAGES[0].timeLimit;
-  readyTime = 0.45;
+  stageElapsed = 0;
+  readyTime = 0.75;
   resultTime = 0;
-  tutorialTime = 2.2;
-  doorProgress = 0;
+  tutorialTime = 1.8;
+  doorProgress = 1;
   shake = 0;
   flash = 0;
+  hitStop = 0;
+  lives = 3;
+  lastAttemptResult = "";
   coffee?: Vec2;
   coffeeTaken = false;
   npcs: Npc[] = [];
   bursts: Burst[] = [];
+  impacts: ImpactMark[] = [];
   texts: FloatingText[] = [];
   private nextId = 1;
   private lastStrongEjection = -99;
+  private movementTutorialSeen = false;
+  private pushTutorialSeen = false;
 
   constructor(readonly input: Input) {
     this.loadStage(0);
@@ -72,12 +85,18 @@ export class Game {
 
   update(dt: number): void {
     const safeDt = Math.min(dt, 1 / 30);
-    if (this.input.consume("KeyR")) this.loadStage(this.stageIndex);
+    if (this.input.consume("KeyR")) {
+      if (this.phase === GamePhase.GameOver) this.startNewGame();
+      else this.loadStage(this.stageIndex);
+    }
 
-    if (this.phase === GamePhase.Cleared || this.phase === GamePhase.Failed) {
+    if (this.phase === GamePhase.Cleared || this.phase === GamePhase.Failed || this.phase === GamePhase.GameOver) {
       this.resultTime += safeDt;
       if (this.phase === GamePhase.Cleared && this.input.consume("Space") && this.resultTime > 0.25) {
-        this.loadStage((this.stageIndex + 1) % STAGES.length);
+        if (this.stageIndex === STAGES.length - 1) this.startNewGame();
+        else this.loadStage(this.stageIndex + 1);
+      } else if (this.phase === GamePhase.Failed && this.lives > 0 && this.resultTime >= 0.46) {
+        this.loadStage(this.stageIndex);
       }
       this.updateEffects(safeDt);
       this.input.endFrame();
@@ -86,11 +105,21 @@ export class Game {
 
     if (this.phase === GamePhase.Ready) {
       this.readyTime -= safeDt;
-      if (this.readyTime <= 0) this.phase = GamePhase.Playing;
+      this.doorProgress = clamp(this.readyTime / 0.55, 0, 1);
+      if (this.readyTime <= 0) {
+        this.phase = GamePhase.Playing;
+        this.doorProgress = 0;
+      }
     } else {
+      if (this.hitStop > 0) {
+        this.hitStop = Math.max(0, this.hitStop - safeDt);
+        this.input.endFrame();
+        return;
+      }
       this.timeRemaining = Math.max(0, this.timeRemaining - safeDt);
+      this.stageElapsed += safeDt;
       this.tutorialTime = Math.max(0, this.tutorialTime - safeDt);
-      this.doorProgress = this.timeRemaining < 0.8 ? 1 - this.timeRemaining / 0.8 : 0;
+      this.doorProgress = this.timeRemaining < 0.68 ? 1 - this.timeRemaining / 0.68 : 0;
       this.updatePlayer(safeDt);
       this.updateNpcs(safeDt);
       this.resolveNpcPairs();
@@ -109,12 +138,20 @@ export class Game {
     this.phase = GamePhase.Ready;
     this.failureReason = undefined;
     this.timeRemaining = stage.timeLimit;
-    this.readyTime = 0.45;
+    this.stageElapsed = 0;
+    this.readyTime = 0.75;
     this.resultTime = 0;
-    this.tutorialTime = this.stageIndex === 0 || this.stageIndex === 2 ? 2.2 : 0;
-    this.doorProgress = 0;
+    if (this.stageIndex === 0 && !this.movementTutorialSeen) {
+      this.tutorialTime = 1.8;
+      this.movementTutorialSeen = true;
+    } else if (this.stageIndex === 2 && !this.pushTutorialSeen) {
+      this.tutorialTime = 2;
+      this.pushTutorialSeen = true;
+    } else this.tutorialTime = 0;
+    this.doorProgress = 1;
     this.shake = 0;
     this.flash = 0;
+    this.hitStop = 0;
     this.lastStrongEjection = -99;
     this.coffee = stage.coffee ? { ...stage.coffee } : undefined;
     this.coffeeTaken = false;
@@ -128,28 +165,47 @@ export class Game {
       caffeineTime: 0,
     });
     this.npcs = stage.spawns.map((spawn, spawnIndex) => {
-      const stats = KIND_STATS[spawn.kind];
+      const body = spawn.body ?? (spawn.kind === "backpack" ? "backpack" : "normal");
+      const stats = BODY_STATS[body];
       const jitter = stage.randomize ? this.seededJitter(this.stageIndex * 31 + spawnIndex * 17) : 0;
       return {
         id: this.nextId++,
         kind: spawn.kind,
+        body,
         position: { x: spawn.x + jitter, y: spawn.y + jitter * 0.25 },
         velocity: { x: 0, y: 0 },
         radius: stats.radius,
-        resistance: stats.resistance,
+        resistance: stats.resistance * (spawn.kind === "alighter" ? 1.18 : spawn.kind === "rival" ? 1.05 : 1),
         targetX: (spawn.targetX ?? spawn.x) - jitter * 0.35,
         squash: 0,
         active: true,
         tint: (spawnIndex * 47 + this.stageIndex * 23) % 360,
+        pantsTint: (spawnIndex * 71 + 205) % 360,
+        skinTone: SKIN_TONES[spawnIndex % SKIN_TONES.length],
+        heightScale: stats.height * (0.96 + (spawnIndex % 3) * 0.035),
+        widthScale: stats.width,
+        headScale: 0.9 + (spawnIndex % 4) * 0.06,
+        impactCooldown: 0,
       };
     });
     this.bursts = [];
+    this.impacts = [];
     this.texts = [];
+  }
+
+  startNewGame(): void {
+    this.lives = 3;
+    this.lastAttemptResult = "";
+    this.movementTutorialSeen = false;
+    this.pushTutorialSeen = false;
+    this.loadStage(0);
   }
 
   getSnapshot(): GameSnapshot {
     const npcCounts: Record<NpcKind, number> = { normal: 0, backpack: 0, alighter: 0, rival: 0 };
+    const bodyCounts: Record<NpcBody, number> = { slim: 0, normal: 0, tall: 0, large: 0, backpack: 0 };
     this.npcs.filter((npc) => npc.active).forEach((npc) => npcCounts[npc.kind]++);
+    this.npcs.filter((npc) => npc.active).forEach((npc) => bodyCounts[npc.body]++);
     return {
       stage: this.stageIndex + 1,
       stageName: STAGES[this.stageIndex].name,
@@ -158,7 +214,12 @@ export class Game {
       timeRemaining: Number(this.timeRemaining.toFixed(2)),
       player: { x: Math.round(this.player.position.x), y: Math.round(this.player.position.y) },
       caffeineTime: Number(this.player.caffeineTime.toFixed(2)),
+      lives: this.lives,
+      doorProgress: Number(this.doorProgress.toFixed(2)),
+      hitStop: Number(this.hitStop.toFixed(3)),
       npcCounts,
+      bodyCounts,
+      lastAttemptResult: this.lastAttemptResult,
     };
   }
 
@@ -170,7 +231,7 @@ export class Game {
     const moving = length(raw) > 0;
     const direction = moving ? normalize(raw) : { x: 0, y: 0 };
     if (moving) this.player.lastDirection = direction;
-    const speed = this.player.caffeineTime > 0 ? 225 : 172;
+    const speed = this.player.caffeineTime > 0 ? 240 : 185;
     const response = 1 - Math.exp(-dt * 20);
     this.player.velocity.x += (direction.x * speed - this.player.velocity.x) * response;
     this.player.velocity.y += (direction.y * speed - this.player.velocity.y) * response;
@@ -198,21 +259,21 @@ export class Game {
       if (!npc.active) return false;
       const delta = { x: npc.position.x - player.position.x, y: npc.position.y - player.position.y };
       const distance = length(delta);
-      return distance < player.radius + npc.radius + 54 && (delta.x * forwardBias.x + delta.y * forwardBias.y) / Math.max(distance, 1) > 0.38;
+      return distance < player.radius + npc.radius + 28 && (delta.x * forwardBias.x + delta.y * forwardBias.y) / Math.max(distance, 1) > 0.42;
     });
-    const power = player.caffeineTime > 0 ? 8.2 : 3.35;
+    const power = player.caffeineTime > 0 ? 9.4 : 4.7;
     const pressure = targets.reduce((sum, npc) => sum + npc.resistance + this.neighborPressure(npc), 0);
-    const succeeds = targets.length === 0 || power >= pressure * 0.72;
+    const succeeds = targets.length === 0 || power >= pressure * 0.45;
     player.pushCooldown = player.caffeineTime > 0 ? 0.29 : 0.43;
     player.pushFlash = 0.16;
     player.squash = succeeds ? 0.18 : -0.22;
-    this.flash = 0.08;
+    this.flash = targets.length > 0 ? 0.055 : 0;
 
     if (succeeds) {
-      const dash = player.caffeineTime > 0 ? 62 : 42;
+      const dash = player.caffeineTime > 0 ? 70 : targets.length > 0 ? 52 : 34;
       this.movePlayer(forwardBias.x * dash, forwardBias.y * dash);
       for (const npc of targets) {
-        const impulse = player.caffeineTime > 0 ? 245 : 155;
+        const impulse = player.caffeineTime > 0 ? 290 : 175;
         npc.velocity.x += forwardBias.x * impulse / npc.resistance;
         npc.velocity.y += forwardBias.y * impulse / npc.resistance;
         npc.squash = 0.2;
@@ -220,34 +281,46 @@ export class Game {
       this.spawnImpact({
         x: player.position.x + forwardBias.x * 34,
         y: player.position.y + forwardBias.y * 34,
-      }, player.caffeineTime > 0 ? "#ffe14f" : "#ffffff", player.caffeineTime > 0 ? 11 : 7);
-      this.shake = player.caffeineTime > 0 ? 0.2 : 0.12;
+      }, player.caffeineTime > 0 ? "#ffe14f" : "#ffffff", player.caffeineTime > 0 ? 12 : 8, targets.length > 0);
+      if (targets.length > 0) {
+        this.texts.push({
+          text: player.caffeineTime > 0 && targets.length >= 2 ? "쾅!" : "팡!",
+          position: { x: player.position.x + forwardBias.x * 48, y: player.position.y + forwardBias.y * 48 },
+          life: 0.42,
+          color: player.caffeineTime > 0 ? "#ffe14f" : "#ffffff",
+        });
+        this.hitStop = player.caffeineTime > 0 ? 0.065 : 0.05;
+      }
+      this.shake = targets.length > 0 ? (player.caffeineTime > 0 ? 0.12 : 0.07) : 0;
     } else {
-      const recoil = player.caffeineTime > 0 ? 28 : 76;
+      const recoil = player.caffeineTime > 0 ? 34 : 92;
       player.velocity.x = -forwardBias.x * recoil * 4;
       player.velocity.y = Math.max(80, -forwardBias.y * recoil * 4);
       this.movePlayer(-forwardBias.x * recoil, -forwardBias.y * recoil);
       this.lastStrongEjection = this.timeRemaining;
-      this.texts.push({ text: "꿈쩍도 안 한다!", position: { ...player.position }, life: 0.7, color: "#ffde59" });
-      this.spawnImpact({ x: player.position.x, y: player.position.y - 18 }, "#ef5b5b", 9);
-      this.shake = 0.3;
+      this.texts.push({ text: "쾅!", position: { x: player.position.x, y: player.position.y - 18 }, life: 0.48, color: "#ffde59" });
+      this.spawnImpact({ x: player.position.x, y: player.position.y - 22 }, "#ef5b5b", 11, true);
+      this.hitStop = 0.065;
+      this.shake = 0.12;
     }
   }
 
   private updateNpcs(dt: number): void {
     for (const npc of this.npcs) {
       if (!npc.active) continue;
+      npc.impactCooldown = Math.max(0, npc.impactCooldown - dt);
       npc.squash += (0 - npc.squash) * Math.min(1, dt * 10);
       if (npc.kind === "alighter") {
+        if (this.stageElapsed < 0.45) continue;
         const desiredX = npc.position.y < TRAIN_FLOOR - 6 ? 480 + (npc.targetX - 480) * 0.3 : npc.targetX;
         npc.velocity.x += (desiredX - npc.position.x) * dt * 4.5;
-        npc.velocity.y += (112 - npc.velocity.y) * Math.min(1, dt * 4.5);
+        npc.velocity.y += (154 - npc.velocity.y) * Math.min(1, dt * 5.2);
       } else if (npc.kind === "rival") {
         const inside = npc.position.y + npc.radius < TRAIN_FLOOR;
         if (!inside) {
-          npc.velocity.x += (npc.targetX - npc.position.x) * dt * 2.8;
+          npc.velocity.x += (npc.targetX - npc.position.x) * dt * 3.4;
           const aligned = Math.abs(npc.targetX - npc.position.x) < 58;
-          npc.velocity.y += ((aligned ? -105 : -34) - npc.velocity.y) * Math.min(1, dt * 3.4);
+          npc.velocity.y += ((aligned ? -125 : -42) - npc.velocity.y) * Math.min(1, dt * 4);
         } else {
           npc.velocity.y += (-18 - npc.velocity.y) * Math.min(1, dt * 2);
         }
@@ -286,9 +359,16 @@ export class Game {
       if (npc.kind === "alighter" && npc.velocity.y > 55) {
         this.player.velocity.x += normal.x * 135;
         this.player.velocity.y += Math.max(170, npc.velocity.y * 1.75);
-        this.movePlayer(normal.x * 12, 15);
+        this.movePlayer(normal.x * 16, 22);
         this.lastStrongEjection = this.timeRemaining;
-        this.shake = Math.max(this.shake, 0.18);
+        if (npc.impactCooldown <= 0) {
+          const hitPoint = { x: (npc.position.x + this.player.position.x) * 0.5, y: (npc.position.y + this.player.position.y) * 0.5 };
+          this.texts.push({ text: "팡!", position: hitPoint, life: 0.36, color: "#ffffff" });
+          this.spawnImpact(hitPoint, "#ef7b68", 7, true);
+          npc.impactCooldown = 0.35;
+          this.hitStop = Math.max(this.hitStop, 0.045);
+        }
+        this.shake = Math.max(this.shake, 0.08);
       } else if (npc.kind === "rival") {
         this.player.velocity.x += normal.x * 48;
       }
@@ -323,7 +403,7 @@ export class Game {
     if (!this.coffee || this.coffeeTaken) return;
     if (Math.hypot(this.player.position.x - this.coffee.x, this.player.position.y - this.coffee.y) < 42) {
       this.coffeeTaken = true;
-      this.player.caffeineTime = 5;
+      this.player.caffeineTime = 4.8;
       this.texts.push({ text: "CAFFEINE RUSH!", position: { ...this.player.position }, life: 1.2, color: "#ffe14f" });
       for (let i = 0; i < 18; i++) this.spawnSpark(this.player.position, "#ffe14f");
       this.shake = 0.2;
@@ -333,15 +413,17 @@ export class Game {
   private judgeResult(): void {
     this.doorProgress = 1;
     const top = this.player.position.y - this.player.radius;
-    const bottom = this.player.position.y + this.player.radius;
-    if (bottom <= TRAIN_FLOOR + 5) {
+    if (this.player.position.y <= SAFE_ZONE_Y) {
       this.phase = GamePhase.Cleared;
+      this.lastAttemptResult = "Cleared";
       this.texts.push({ text: "탑승 성공!", position: { ...this.player.position }, life: 1.4, color: "#55d6a7" });
     } else {
-      this.phase = GamePhase.Failed;
-      const overlapsLine = top < TRAIN_FLOOR + 8 && bottom > TRAIN_FLOOR - 8;
+      const insideThreshold = top < TRAIN_FLOOR + 5;
       const recentlyEjected = this.lastStrongEjection <= 2.2 && this.lastStrongEjection >= 0;
-      this.failureReason = overlapsLine ? FailureReason.Stuck : recentlyEjected ? FailureReason.PushedOut : FailureReason.Timeout;
+      this.failureReason = insideThreshold ? FailureReason.Stuck : recentlyEjected ? FailureReason.PushedOut : FailureReason.Timeout;
+      this.lastAttemptResult = this.failureReason;
+      this.lives = Math.max(0, this.lives - 1);
+      this.phase = this.lives > 0 ? GamePhase.Failed : GamePhase.GameOver;
     }
     this.resultTime = 0;
     this.shake = 0.34;
@@ -351,7 +433,7 @@ export class Game {
     return this.npcs.reduce((pressure, other) => {
       if (other === target || !other.active) return pressure;
       const distance = Math.hypot(other.position.x - target.position.x, other.position.y - target.position.y);
-      return distance < target.radius + other.radius + 13 ? pressure + 0.68 : pressure;
+      return distance < target.radius + other.radius + 10 ? pressure + 0.72 : pressure;
     }, 0);
   }
 
@@ -372,6 +454,8 @@ export class Game {
       burst.life -= dt;
     }
     this.bursts = this.bursts.filter((burst) => burst.life > 0);
+    for (const impact of this.impacts) impact.life -= dt;
+    this.impacts = this.impacts.filter((impact) => impact.life > 0);
     for (const floatingText of this.texts) {
       floatingText.position.y -= 28 * dt;
       floatingText.life -= dt;
@@ -380,7 +464,8 @@ export class Game {
     if (this.player.caffeineTime > 0 && Math.random() < dt * 16) this.spawnSpark(this.player.position, "#ffe14f");
   }
 
-  private spawnImpact(position: Vec2, color: string, count: number): void {
+  private spawnImpact(position: Vec2, color: string, count: number, strong = false): void {
+    this.impacts.push({ position: { ...position }, life: strong ? 0.34 : 0.24, color, strong });
     for (let i = 0; i < count; i++) {
       const angle = (Math.PI * 2 * i) / count + Math.random() * 0.25;
       const speed = 65 + Math.random() * 95;

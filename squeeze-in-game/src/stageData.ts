@@ -1,53 +1,76 @@
-import type { Spawn, StageDefinition } from "./types";
+import type { NpcBody, Spawn, StageDefinition } from "./types";
 
-const normal = (x: number, y: number): Spawn => ({ kind: "normal", x, y });
-const backpack = (x: number, y: number): Spawn => ({ kind: "backpack", x, y });
-const alighter = (x: number, y: number, targetX = x): Spawn => ({ kind: "alighter", x, y, targetX });
-const rival = (x: number, y: number, targetX: number): Spawn => ({ kind: "rival", x, y, targetX });
+const normal = (x: number, y: number, body: NpcBody = "normal"): Spawn => ({ kind: "normal", body, x, y });
+const backpack = (x: number, y: number): Spawn => ({ kind: "backpack", body: "backpack", x, y });
+const alighter = (x: number, y: number, targetX = x, body: NpcBody = "normal"): Spawn => ({ kind: "alighter", body, x, y, targetX });
+const rival = (x: number, y: number, targetX: number, body: NpcBody = "normal"): Spawn => ({ kind: "rival", body, x, y, targetX });
 
 export const STAGES: StageDefinition[] = [
   {
     name: "첫 출근",
-    timeLimit: 13,
-    spawns: [normal(395, 210), normal(565, 205), normal(590, 280)],
-  },
-  {
-    name: "조금 붐빈다",
-    timeLimit: 12,
+    timeLimit: 15,
     spawns: [
-      normal(394, 286), normal(466, 294), normal(530, 276),
-      normal(572, 210), normal(435, 208), normal(615, 292),
+      normal(308, 380, "slim"), normal(365, 280), normal(412, 205, "tall"),
+      normal(554, 220), normal(620, 300, "large"), normal(684, 382, "slim"),
+      normal(752, 250), normal(814, 372, "tall"),
     ],
   },
   {
-    name: "비집고 들어가기",
-    timeLimit: 12,
+    name: "출근 시작",
+    timeLimit: 13,
     spawns: [
-      normal(365, 287), normal(416, 278), normal(470, 289), normal(522, 281),
-      normal(574, 288), normal(612, 246), normal(444, 211), normal(543, 207),
+      normal(285, 385), normal(335, 315, "slim"), normal(382, 385, "tall"),
+      normal(447, 390), normal(565, 370, "slim"), normal(610, 388),
+      normal(646, 318, "tall"), normal(704, 388), normal(765, 312, "slim"),
+      normal(820, 382), normal(420, 270), normal(515, 245, "tall"), normal(605, 225, "slim"),
     ],
   },
   {
-    name: "내리는 사람 먼저",
-    timeLimit: 13,
+    name: "만원",
+    timeLimit: 11,
+    spawns: [
+      normal(250, 390, "slim"), normal(300, 330), normal(350, 390, "tall"),
+      normal(400, 335), normal(449, 390, "slim"), normal(481, 393),
+      normal(529, 385, "large"), normal(580, 335), normal(630, 390, "tall"),
+      normal(680, 330, "slim"), normal(730, 390), normal(785, 325, "large"),
+      normal(830, 390), normal(330, 245), normal(405, 225, "tall"),
+      backpack(555, 250), normal(650, 225, "slim"), normal(745, 240),
+    ],
+  },
+  {
+    name: "환승역",
+    timeLimit: 9,
     randomize: true,
     spawns: [
-      normal(372, 213), normal(420, 284), normal(535, 283), normal(590, 216), normal(617, 284),
-      alighter(448, 235, 430), alighter(494, 205, 505), alighter(545, 246, 560),
-      rival(278, 490, 395),
+      normal(235, 390), normal(285, 325, "slim"), normal(335, 390, "large"),
+      normal(385, 325, "tall"), normal(430, 390), normal(535, 390, "slim"),
+      normal(585, 325, "large"), normal(635, 390), normal(685, 320, "tall"),
+      normal(735, 390, "slim"), normal(785, 325), normal(830, 390, "large"),
+      normal(320, 235, "tall"), normal(400, 220), normal(565, 230, "slim"),
+      normal(655, 215), normal(750, 235, "tall"),
+      alighter(450, 360, 440, "slim"), alighter(482, 320, 485),
+      alighter(512, 365, 520, "large"), alighter(492, 245, 500, "tall"),
+      rival(350, 520, 455, "slim"),
     ],
   },
   {
     name: "지옥철",
-    timeLimit: 11,
+    timeLimit: 7,
     randomize: true,
-    coffee: { x: 752, y: 470 },
+    coffee: { x: 610, y: 518 },
     spawns: [
-      normal(354, 284), normal(401, 216), normal(432, 285), normal(479, 214),
-      normal(518, 284), normal(565, 210), normal(612, 280),
-      backpack(470, 286), backpack(581, 282),
-      alighter(432, 238, 410), alighter(500, 205, 500), alighter(552, 242, 568),
-      rival(275, 492, 388), rival(685, 505, 602),
+      normal(205, 392, "large"), normal(250, 335, "slim"), normal(295, 392),
+      normal(340, 330, "tall"), normal(382, 392, "large"), normal(423, 335),
+      normal(452, 392, "slim"), backpack(486, 390), normal(523, 388, "large"),
+      normal(558, 330, "tall"), backpack(595, 388), normal(635, 330),
+      normal(675, 392, "large"), normal(718, 330, "slim"), normal(760, 390),
+      normal(805, 328, "tall"), normal(850, 390, "large"),
+      normal(255, 245), normal(315, 205, "tall"), normal(375, 250, "slim"),
+      normal(435, 215), normal(545, 220, "large"), normal(610, 245, "slim"),
+      normal(675, 205, "tall"), normal(740, 250), normal(805, 210, "slim"),
+      alighter(455, 350, 445, "slim"), alighter(486, 305, 485),
+      alighter(515, 355, 520, "large"),
+      rival(345, 520, 456, "slim"), rival(760, 525, 510),
     ],
   },
 ];

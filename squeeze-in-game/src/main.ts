@@ -9,12 +9,18 @@ if (!canvas) throw new Error("Game canvas was not found");
 const input = new Input(canvas);
 const game = new Game(input);
 const renderer = new Renderer(canvas);
+const requestedStage = Number(new URLSearchParams(window.location.search).get("stage"));
+if (Number.isInteger(requestedStage) && requestedStage >= 1 && requestedStage <= 5) game.loadStage(requestedStage - 1);
 let lastTime = performance.now();
 
 const frame = (now: number): void => {
-  const dt = (now - lastTime) / 1000;
+  let remainingTime = Math.min((now - lastTime) / 1000, 1);
   lastTime = now;
-  game.update(dt);
+  while (remainingTime > 0) {
+    const step = Math.min(remainingTime, 1 / 30);
+    game.update(step);
+    remainingTime -= step;
+  }
   renderer.render(game);
   const snapshot = game.getSnapshot();
   canvas.dataset.stage = String(snapshot.stage);
@@ -24,6 +30,10 @@ const frame = (now: number): void => {
   canvas.dataset.playerY = String(snapshot.player.y);
   canvas.dataset.caffeine = String(snapshot.caffeineTime);
   canvas.dataset.failure = snapshot.failureReason ?? "";
+  canvas.dataset.lives = String(snapshot.lives);
+  canvas.dataset.door = String(snapshot.doorProgress);
+  canvas.dataset.hitStop = String(snapshot.hitStop);
+  canvas.dataset.lastResult = snapshot.lastAttemptResult;
   requestAnimationFrame(frame);
 };
 
@@ -36,6 +46,7 @@ declare global {
       snapshot: () => ReturnType<Game["getSnapshot"]>;
       loadStage: (stage: number) => void;
       restart: () => void;
+      newGame: () => void;
     };
   }
 }
@@ -44,6 +55,7 @@ window.__SQUEEZE_DEBUG__ = {
   snapshot: () => game.getSnapshot(),
   loadStage: (stage: number) => game.loadStage(stage - 1),
   restart: () => game.loadStage(game.stageIndex),
+  newGame: () => game.startNewGame(),
 };
 
 window.addEventListener("beforeunload", () => input.destroy(), { once: true });

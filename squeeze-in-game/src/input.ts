@@ -1,7 +1,7 @@
 export class Input {
   private held = new Set<string>();
   private pressed = new Set<string>();
-  private pulseUntil = new Map<string, number>();
+  private pulseFrames = new Map<string, number>();
 
   constructor(target: HTMLElement) {
     window.addEventListener("keydown", this.onKeyDown, { passive: false });
@@ -26,6 +26,10 @@ export class Input {
 
   endFrame(): void {
     this.pressed.clear();
+    for (const [code, frames] of this.pulseFrames) {
+      if (frames <= 1) this.pulseFrames.delete(code);
+      else this.pulseFrames.set(code, frames - 1);
+    }
   }
 
   destroy(): void {
@@ -35,8 +39,7 @@ export class Input {
   }
 
   private isDown(...codes: string[]): boolean {
-    const now = performance.now();
-    return codes.some((code) => this.held.has(code) || (this.pulseUntil.get(code) ?? 0) > now);
+    return codes.some((code) => this.held.has(code) || (this.pulseFrames.get(code) ?? 0) > 0);
   }
 
   private onKeyDown = (event: KeyboardEvent): void => {
@@ -45,7 +48,7 @@ export class Input {
     }
     if (!event.repeat) this.pressed.add(event.code);
     this.held.add(event.code);
-    this.pulseUntil.set(event.code, performance.now() + 105);
+    this.pulseFrames.set(event.code, Math.min(36, (this.pulseFrames.get(event.code) ?? 0) + 4));
   };
 
   private onKeyUp = (event: KeyboardEvent): void => {
@@ -55,6 +58,6 @@ export class Input {
   private clear = (): void => {
     this.held.clear();
     this.pressed.clear();
-    this.pulseUntil.clear();
+    this.pulseFrames.clear();
   };
 }
