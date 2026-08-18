@@ -1,12 +1,21 @@
 import Phaser from 'phaser';
 import { COLORS, GAME_CONFIG } from './config';
 import {
+  type BusKind,
+  GameStage,
   GameState,
   isTerminalState,
   type CommuteRushTestApi,
   type CrowdActor,
   type GameSnapshot,
 } from './types';
+
+const SUBWAY_VILLAIN_LINES = [
+  '안 비켜! 다음 차 타!',
+  '비켜! 나 먼저!',
+  '내릴 사람? 난 모르겠는데?',
+  '출근길 처음 봐?',
+] as const;
 
 const BOSS_LINES = [
   '요즘 젊은 애들은 절박함이 없어.',
@@ -15,31 +24,47 @@ const BOSS_LINES = [
   '이 정도 출근길도 못 버티나?',
 ] as const;
 
+const PLAYER_COFFEE_LINES = [
+  '마시니까 좀 살 것 같군...',
+  '좋아, 카페인 풀충전.',
+  '이제 좀 뛸 만한데?',
+] as const;
+
 const FONT_FAMILY = 'Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", Arial, sans-serif';
 const PLAYER_START_X = 110;
 const PLAYER_START_Y = 430;
-const BUS_Y = 430;
+const BUS_Y = 474;
 const BUS_RIDER_OFFSET_X = -20;
 const BUS_RIDER_OFFSET_Y = 82;
-const COFFEE_X = 1110;
-const COFFEE_Y = 235;
-const RESIGNATION_X = 3240;
-const RESIGNATION_Y = 180;
+const COFFEE_X = 720;
+const COFFEE_Y = 350;
+const RESIGNATION_X = 3260;
+const RESIGNATION_Y = 290;
 const SCANNER_X = 4090;
 const SCANNER_Y = 330;
+const RED_BOARDING_X = 1745;
+const WRONG_BOARDING_X = 1965;
+const BOARDING_Y = 624;
+const BOARDING_WIDTH = 190;
+const BOARDING_HEIGHT = 92;
+const FINGERPRINT_STAGE_X = 3760;
 
 type BusPhase = 'moving' | 'cooldown';
 
 export class GameScene extends Phaser.Scene {
   private state = GameState.Playing;
+  private stage = GameStage.Subway;
   private player!: Phaser.Physics.Arcade.Sprite;
   private playerIndicator!: Phaser.GameObjects.Triangle;
   private walls!: Phaser.Physics.Arcade.StaticGroup;
   private bus!: Phaser.GameObjects.Sprite;
+  private busDestinationText!: Phaser.GameObjects.Text;
   private coffee!: Phaser.GameObjects.Sprite;
+  private coffeeLabel!: Phaser.GameObjects.Text;
   private resignation!: Phaser.GameObjects.Sprite;
   private scanner!: Phaser.GameObjects.Sprite;
   private crowd: CrowdActor[] = [];
+  private queueNpcs: Phaser.GameObjects.Sprite[] = [];
 
   private keys!: {
     up: Phaser.Input.Keyboard.Key;
@@ -67,12 +92,23 @@ export class GameScene extends Phaser.Scene {
 
   private busPhase: BusPhase = 'moving';
   private busRespawnAtMs = 0;
+  private busKind: BusKind = 'red';
+  private nextBusKind: BusKind = 'blue';
+  private busArrivalResolved = false;
+  private queueNpcCount = 0;
+  private fullBusMissed = false;
 
   private objective = '';
   private clockText!: Phaser.GameObjects.Text;
   private mentalText!: Phaser.GameObjects.Text;
   private objectiveText!: Phaser.GameObjects.Text;
   private coffeeText!: Phaser.GameObjects.Text;
+  private stageTexts: Phaser.GameObjects.Text[] = [];
+  private bossNameText!: Phaser.GameObjects.Text;
+  private playerDialogueText!: Phaser.GameObjects.Text;
+  private playerDialogueUntilMs = 0;
+  private noticeText!: Phaser.GameObjects.Text;
+  private noticeUntilMs = 0;
   private bossPanel!: Phaser.GameObjects.Container;
   private bossDialogueText!: Phaser.GameObjects.Text;
   private resultOverlay!: Phaser.GameObjects.Container;
@@ -89,6 +125,7 @@ export class GameScene extends Phaser.Scene {
     this.createWorld();
     this.createPlayer();
     this.createCrowd();
+    this.createQueueNpcs();
     this.createBus();
     this.createItemsAndGoal();
     this.createHud();
@@ -97,7 +134,7 @@ export class GameScene extends Phaser.Scene {
 
     this.physics.add.collider(this.player, this.walls);
     this.runStartedAtMs = performance.now();
-    this.updateObjective(true);
+    this.updateStageAndObjective(true);
     this.updateHud(performance.now(), true);
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.handleShutdown, this);
@@ -124,6 +161,7 @@ export class GameScene extends Phaser.Scene {
     if (this.state === GameState.RidingBus) {
       this.syncPlayerToBus();
       this.hideBossDialogueIfExpired(nowMs);
+      this.hideTransientMessagesIfExpired(nowMs);
       this.updateHud(nowMs);
       return;
     }
@@ -132,15 +170,18 @@ export class GameScene extends Phaser.Scene {
     this.checkCrowdContacts(nowMs);
     this.checkItemContacts(nowMs);
     this.checkScannerContact();
-    this.updateObjective();
+    this.updateStageAndObjective();
     this.updateBlink(nowMs);
     this.hideBossDialogueIfExpired(nowMs);
+    this.hideTransientMessagesIfExpired(nowMs);
     this.updateHud(nowMs);
   }
 
   private resetRuntimeValues(): void {
     this.state = GameState.Playing;
+    this.stage = GameStage.Subway;
     this.crowd = [];
+    this.queueNpcs = [];
     this.currentSpeed = GAME_CONFIG.playerBaseSpeed;
     this.mental = GAME_CONFIG.maxMental;
     this.hasRiddenBus = false;
@@ -155,7 +196,15 @@ export class GameScene extends Phaser.Scene {
     this.resignationCollected = false;
     this.busPhase = 'moving';
     this.busRespawnAtMs = 0;
+    this.busKind = 'red';
+    this.nextBusKind = 'blue';
+    this.busArrivalResolved = false;
+    this.queueNpcCount = Phaser.Math.Between(0, 6);
+    this.fullBusMissed = false;
     this.objective = '';
+    this.stageTexts = [];
+    this.playerDialogueUntilMs = 0;
+    this.noticeUntilMs = 0;
     this.movementVector.set(0, 0);
     this.knockbackVector.set(0, 0);
   }
@@ -180,7 +229,9 @@ export class GameScene extends Phaser.Scene {
       this.createPersonTexture(`crowd-${index}`, color, 0xf2d3b1, false, index % 3);
     });
 
-    this.createBusTexture();
+    this.createBusTexture('bus-red', 0xdc2626, 0xf87171);
+    this.createBusTexture('bus-blue', 0x2563eb, 0x60a5fa);
+    this.createBusTexture('bus-green', 0x15803d, 0x4ade80);
     this.createCoffeeTexture();
     this.createResignationTexture();
     this.createScannerTexture();
@@ -238,17 +289,17 @@ export class GameScene extends Phaser.Scene {
     graphics.destroy();
   }
 
-  private createBusTexture(): void {
-    if (this.textures.exists('bus')) {
+  private createBusTexture(key: string, bodyColor: number, accentColor: number): void {
+    if (this.textures.exists(key)) {
       return;
     }
 
     const graphics = this.add.graphics({ x: 0, y: 0 });
     graphics.fillStyle(0x0f172a, 0.25);
     graphics.fillRoundedRect(8, 9, 292, 102, 18);
-    graphics.fillStyle(0x2563eb, 1);
+    graphics.fillStyle(bodyColor, 1);
     graphics.fillRoundedRect(0, 0, 292, 102, 16);
-    graphics.fillStyle(0x60a5fa, 1);
+    graphics.fillStyle(accentColor, 1);
     graphics.fillRoundedRect(20, 14, 210, 74, 10);
     graphics.fillStyle(0x0f172a, 1);
     for (let index = 0; index < 5; index += 1) {
@@ -261,7 +312,7 @@ export class GameScene extends Phaser.Scene {
     graphics.fillStyle(0x111827, 1);
     graphics.fillRoundedRect(18, 94, 58, 8, 4);
     graphics.fillRoundedRect(215, 94, 58, 8, 4);
-    graphics.generateTexture('bus', 304, 116);
+    graphics.generateTexture(key, 304, 116);
     graphics.destroy();
   }
 
@@ -380,26 +431,49 @@ export class GameScene extends Phaser.Scene {
     ];
 
     pillarLocations.forEach(({ x, y, label }) => {
-      this.addWorldLabel(x, y, label, 0xf8fafc).setOrigin(0.5);
+      this.addWorldLabel(x, y, label, 0x111827, '#f8faf0d9').setOrigin(0.5);
     });
   }
 
   private createRoadAndStopVisuals(): void {
-    this.add.rectangle(1420, 124, 600, 580, 0xcbd5e1).setOrigin(0, 0).setDepth(-12);
-    this.add.rectangle(2020, 124, 900, 580, COLORS.road).setOrigin(0, 0).setDepth(-12);
+    this.add.rectangle(1420, 124, 1500, 580, 0xd9e2e8).setOrigin(0, 0).setDepth(-14);
+    this.add.rectangle(1420, 244, 1500, 306, COLORS.road).setOrigin(0, 0).setDepth(-12);
 
-    for (let x = 2060; x < 2920; x += 145) {
-      this.add.rectangle(x, 405, 82, 9, COLORS.roadLine, 0.8).setDepth(-6);
+    for (const laneLineY of [346, 448]) {
+      for (let x = 1465; x < 2920; x += 138) {
+        this.add.rectangle(x, laneLineY, 82, 7, COLORS.roadLine, 0.72).setDepth(-6);
+      }
     }
 
-    this.add.rectangle(1690, 300, 310, 260, 0x38bdf8, 0.15).setStrokeStyle(4, 0x0284c7, 0.8);
-    this.add.rectangle(1630, 238, 18, 150, 0x334155);
-    this.add.rectangle(1665, 225, 100, 52, 0x2563eb).setStrokeStyle(3, 0xffffff);
-    this.addWorldLabel(1665, 225, '광역버스', 0xffffff).setOrigin(0.5);
-    this.addWorldLabel(1835, 278, '대기 구역', 0x0f172a).setOrigin(0.5);
-    this.addWorldLabel(2110, 180, '도로 횡단 금지\n버스를 타세요', 0xffffff).setOrigin(0.5);
-    this.addWorldLabel(2600, 650, '버스 전용 도로', 0xffffff).setOrigin(0.5);
-    this.addSectionTitle(1460, 156, '2  달리는 광역버스 탑승');
+    this.add
+      .rectangle(1790, 624, 590, 126, 0xe0f2fe, 0.96)
+      .setStrokeStyle(4, 0x0284c7, 0.9)
+      .setDepth(-4);
+    this.add
+      .rectangle(RED_BOARDING_X, BOARDING_Y, BOARDING_WIDTH, BOARDING_HEIGHT, 0xfecaca, 0.95)
+      .setStrokeStyle(4, 0xdc2626, 1)
+      .setDepth(-3);
+    this.add
+      .rectangle(WRONG_BOARDING_X, BOARDING_Y, BOARDING_WIDTH, BOARDING_HEIGHT, 0xdbeafe, 0.95)
+      .setStrokeStyle(4, 0x2563eb, 1)
+      .setDepth(-3);
+
+    this.add.rectangle(1515, 256, 18, 120, 0x334155);
+    this.add.rectangle(1558, 222, 118, 50, 0xdc2626).setStrokeStyle(3, 0xffffff);
+    this.addWorldLabel(1558, 222, '버스 정류장', 0xffffff).setOrigin(0.5);
+    this.addWorldLabel(1790, 565, '버스 대기 · 승차 위치를 선택하세요', 0x0f172a, '#f8faf0e6').setOrigin(0.5);
+    this.addWorldLabel(RED_BOARDING_X, BOARDING_Y, '빨간 광역버스\n승차 위치', 0x991b1b).setOrigin(0.5);
+    this.addWorldLabel(WRONG_BOARDING_X, BOARDING_Y, '일반버스\n승차 위치', 0x1e3a8a).setOrigin(0.5);
+    this.addWorldLabel(2185, 190, '도로 횡단 금지 · 승차 위치에서 기다리세요', 0xffffff, '#111827e6').setOrigin(0.5);
+    this.addWorldLabel(2620, 520, '버스 전용 도로 · 3차선', 0xffffff, '#111827cc').setOrigin(0.5);
+    this.addSectionTitle(1460, 144, '2  빨간 광역버스 탑승');
+
+    for (const x of [2350, 2490, 2630, 2770]) {
+      this.add.rectangle(x, 215, 10, 42, 0x7c4a24).setDepth(-3);
+      this.add.circle(x, 188, 25, 0x16a34a).setStrokeStyle(3, 0x166534).setDepth(-2);
+      this.add.circle(x - 18, 217, 5, 0xf472b6).setDepth(-2);
+      this.add.circle(x + 18, 218, 5, 0xfacc15).setDepth(-2);
+    }
   }
 
   private createOfficeVisuals(): void {
@@ -416,14 +490,14 @@ export class GameScene extends Phaser.Scene {
     }
     this.add.rectangle(3545, 180, 270, 54, 0xef4444).setDepth(2);
     this.addWorldLabel(3545, 180, '고장 · 이용 금지', 0xffffff).setOrigin(0.5).setDepth(3);
-    this.addWorldLabel(3545, 535, '에스컬레이터', 0xf8fafc).setOrigin(0.5).setDepth(3);
+    this.addWorldLabel(3545, 535, '에스컬레이터', 0x111827, '#f8faf0e6').setOrigin(0.5).setDepth(3);
 
     this.add.rectangle(3545, 624, 390, 110, 0x9ca3af).setStrokeStyle(4, 0x475569);
     for (let x = 3390; x <= 3700; x += 35) {
       this.add.rectangle(x, 624, 20, 82, 0xd1d5db);
     }
     this.addWorldLabel(3545, 624, '계단 우회로', 0x111827).setOrigin(0.5).setDepth(3);
-    this.addWorldLabel(4015, 205, '출근 게이트', 0x111827).setOrigin(0.5);
+    this.addWorldLabel(4060, 205, '지문 인식 · 접촉 시 출근 성공', 0x111827, '#f8faf0e6').setOrigin(0.5);
   }
 
   private addWall(x: number, y: number, width: number, height: number, tint: number): void {
@@ -453,6 +527,7 @@ export class GameScene extends Phaser.Scene {
     y: number,
     text: string,
     color: number,
+    backgroundColor?: string,
   ): Phaser.GameObjects.Text {
     return this.add
       .text(x, y, text, {
@@ -461,6 +536,8 @@ export class GameScene extends Phaser.Scene {
         fontStyle: 'bold',
         color: Phaser.Display.Color.IntegerToColor(color).rgba,
         align: 'center',
+        backgroundColor,
+        padding: backgroundColor ? { x: 7, y: 4 } : undefined,
       })
       .setDepth(5);
   }
@@ -514,20 +591,54 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  private createQueueNpcs(): void {
+    const slots = [
+      [1535, 592],
+      [1585, 592],
+      [1635, 592],
+      [1535, 657],
+      [1585, 657],
+      [1635, 657],
+    ] as const;
+
+    slots.slice(0, this.queueNpcCount).forEach(([x, y], index) => {
+      const npc = this.add.sprite(x, y, `crowd-${(index + 2) % GAME_CONFIG.crowdCount}`);
+      npc.setName('queue-npc').setScale(0.72).setDepth(16);
+      this.queueNpcs.push(npc);
+    });
+  }
+
   private createBus(): void {
-    this.bus = this.add.sprite(GAME_CONFIG.busSpawnX, BUS_Y, 'bus');
+    this.bus = this.add.sprite(GAME_CONFIG.busSpawnX, BUS_Y, 'bus-red');
     this.bus.setName('commute-bus');
     this.bus.setDepth(25);
+    this.busDestinationText = this.add
+      .text(this.bus.x, this.bus.y - 68, '강남 · 회사', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '17px',
+        fontStyle: 'bold',
+        color: '#ffffff',
+        backgroundColor: '#7f1d1dee',
+        padding: { x: 7, y: 3 },
+      })
+      .setOrigin(0.5)
+      .setDepth(27);
   }
 
   private createItemsAndGoal(): void {
     this.coffee = this.add.sprite(COFFEE_X, COFFEE_Y, 'coffee').setDepth(22);
     this.coffee.setName('coffee-item');
-    this.addWorldLabel(COFFEE_X, COFFEE_Y + 46, '아이스 아메리카노', 0x111827).setOrigin(0.5);
+    this.coffeeLabel = this.addWorldLabel(
+      COFFEE_X,
+      COFFEE_Y + 46,
+      '아이스 아메리카노',
+      0x111827,
+      '#f8faf0e6',
+    ).setOrigin(0.5);
 
     this.resignation = this.add.sprite(RESIGNATION_X, RESIGNATION_Y, 'resignation').setDepth(22);
     this.resignation.setName('resignation-item');
-    this.addWorldLabel(RESIGNATION_X, RESIGNATION_Y + 42, '사직서', 0x991b1b).setOrigin(0.5);
+    this.addWorldLabel(RESIGNATION_X, RESIGNATION_Y + 42, '사직서', 0x991b1b, '#fff7edee').setOrigin(0.5);
 
     this.scanner = this.add.sprite(SCANNER_X, SCANNER_Y, 'scanner').setDepth(22);
     this.scanner.setName('fingerprint-scanner');
@@ -536,17 +647,61 @@ export class GameScene extends Phaser.Scene {
 
   private createHud(): void {
     const hudBackground = this.add
-      .rectangle(0, 0, GAME_CONFIG.width, 112, COLORS.hud, 0.96)
+      .rectangle(0, 0, GAME_CONFIG.width, 124, COLORS.hud, 0.97)
       .setOrigin(0, 0)
       .setScrollFactor(0)
       .setDepth(500);
     hudBackground.setStrokeStyle(2, COLORS.hudAccent, 0.55);
 
-    this.clockText = this.addFixedText(24, 16, '', 25, '#f8fafc', 'bold');
-    this.mentalText = this.addFixedText(310, 16, '', 25, '#fca5a5', 'bold');
-    this.objectiveText = this.addFixedText(545, 17, '', 22, '#bae6fd', 'bold');
-    this.coffeeText = this.addFixedText(24, 66, '카페인 부스트 없음', 20, '#fde68a');
-    this.addFixedText(1085, 70, 'WASD 이동', 17, '#cbd5e1');
+    this.clockText = this.addFixedText(24, 12, '', 27, '#f8fafc', 'bold');
+    this.objectiveText = this.addFixedText(
+      GAME_CONFIG.width / 2,
+      15,
+      '',
+      23,
+      '#bae6fd',
+      'bold',
+    ).setOrigin(0.5, 0);
+    this.mentalText = this.addFixedText(24, 55, '', 21, '#fca5a5', 'bold');
+
+    const stageXs = [500, 665, 820, 1000];
+    const stageLabels = ['지하철', '버스', '로비', '지문 인식'];
+    this.stageTexts = stageLabels.map((label, index) =>
+      this.addFixedText(stageXs[index], 59, label, 18, '#64748b', 'bold').setOrigin(0.5),
+    );
+    [582, 742, 910].forEach((x) => {
+      this.addFixedText(x, 50, '━━━', 18, '#475569', 'bold').setOrigin(0.5);
+    });
+
+    this.coffeeText = this.addFixedText(24, 94, '카페인 부스트 없음', 18, '#fde68a');
+    this.addFixedText(1165, 95, 'WASD 이동', 16, '#cbd5e1');
+
+    this.playerDialogueText = this.addFixedText(
+      GAME_CONFIG.width / 2,
+      525,
+      '',
+      22,
+      '#fef3c7',
+      'bold',
+    )
+      .setOrigin(0.5)
+      .setBackgroundColor('#111827e8')
+      .setPadding(14, 8)
+      .setDepth(720)
+      .setVisible(false);
+    this.noticeText = this.addFixedText(
+      GAME_CONFIG.width / 2,
+      142,
+      '',
+      22,
+      '#ffffff',
+      'bold',
+    )
+      .setOrigin(0.5, 0)
+      .setBackgroundColor('#991b1be8')
+      .setPadding(14, 8)
+      .setDepth(720)
+      .setVisible(false);
 
     this.bossPanel = this.createBossPanel();
     this.resultOverlay = this.createResultOverlay();
@@ -583,7 +738,7 @@ export class GameScene extends Phaser.Scene {
     const browLeft = this.add.rectangle(44, 39, 18, 3, 0x111827).setRotation(0.13);
     const browRight = this.add.rectangle(72, 39, 18, 3, 0x111827).setRotation(-0.13);
     const mouth = this.add.rectangle(58, 70, 24, 4, 0x7c2d12);
-    const nameTag = this.add.text(108, 18, '꼰대 부장', {
+    this.bossNameText = this.add.text(108, 18, '지하철 빌런', {
       fontFamily: FONT_FAMILY,
       fontSize: '20px',
       fontStyle: 'bold',
@@ -607,7 +762,7 @@ export class GameScene extends Phaser.Scene {
         browLeft,
         browRight,
         mouth,
-        nameTag,
+        this.bossNameText,
         this.bossDialogueText,
       ])
       .setScrollFactor(0)
@@ -777,7 +932,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showBossDialogue(nowMs: number): void {
-    const line = BOSS_LINES[Phaser.Math.Between(0, BOSS_LINES.length - 1)];
+    const isSubway = this.player.x < 1420;
+    const lines = isSubway ? SUBWAY_VILLAIN_LINES : BOSS_LINES;
+    const line = lines[Phaser.Math.Between(0, lines.length - 1)];
+    this.bossNameText.setText(isSubway ? '지하철 빌런' : '꼰대 부장');
     this.bossDialogueText.setText(line);
     this.dialogueUntilMs = nowMs + 1_200;
     this.bossPanel.setVisible(true);
@@ -786,6 +944,26 @@ export class GameScene extends Phaser.Scene {
   private hideBossDialogueIfExpired(nowMs: number): void {
     if (this.bossPanel.visible && nowMs >= this.dialogueUntilMs) {
       this.bossPanel.setVisible(false);
+    }
+  }
+
+  private showPlayerDialogue(nowMs: number): void {
+    const line = PLAYER_COFFEE_LINES[Phaser.Math.Between(0, PLAYER_COFFEE_LINES.length - 1)];
+    this.playerDialogueText.setText(line).setVisible(true);
+    this.playerDialogueUntilMs = nowMs + 1_300;
+  }
+
+  private showNotice(text: string, nowMs: number): void {
+    this.noticeText.setText(text).setVisible(true);
+    this.noticeUntilMs = nowMs + 1_800;
+  }
+
+  private hideTransientMessagesIfExpired(nowMs: number): void {
+    if (this.playerDialogueText.visible && nowMs >= this.playerDialogueUntilMs) {
+      this.playerDialogueText.setVisible(false);
+    }
+    if (this.noticeText.visible && nowMs >= this.noticeUntilMs) {
+      this.noticeText.setVisible(false);
     }
   }
 
@@ -800,18 +978,50 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateBus(nowMs: number, deltaSeconds: number): void {
+    if (this.stage === GameStage.Subway && !this.hasRiddenBus) {
+      this.syncBusLabel();
+      return;
+    }
+
     if (this.busPhase === 'cooldown') {
       if (nowMs >= this.busRespawnAtMs) {
-        this.busPhase = 'moving';
-        this.bus.setPosition(GAME_CONFIG.busSpawnX, BUS_Y).setVisible(true);
+        this.spawnBus(this.nextBusKind);
       }
       return;
     }
 
     this.bus.x += GAME_CONFIG.busSpeed * deltaSeconds;
+    this.syncBusLabel();
 
-    if (this.state === GameState.Playing && this.canBoardBus()) {
-      this.beginBusRide();
+    if (this.state === GameState.Playing && !this.hasRiddenBus) {
+      const inArrivalWindow =
+        this.bus.x >= GAME_CONFIG.busStopMinX && this.bus.x <= GAME_CONFIG.busStopMaxX;
+
+      if (
+        this.busKind === 'red' &&
+        !this.busArrivalResolved &&
+        !this.fullBusMissed &&
+        this.queueNpcCount >= 5 &&
+        this.bus.x >= GAME_CONFIG.busStopMinX
+      ) {
+        this.busArrivalResolved = true;
+        this.fullBusMissed = true;
+        this.nextBusKind = 'red';
+        this.clearQueueNpcs();
+        this.showNotice('만원입니다! 다음 빨간 버스를 기다리세요.', nowMs);
+      } else if (inArrivalWindow && !this.busArrivalResolved) {
+        if (this.busKind === 'red' && this.isPlayerInBoardingZone('red')) {
+          this.busArrivalResolved = true;
+          this.beginBusRide();
+        } else if (this.busKind !== 'red' && this.isPlayerInBoardingZone('wrong')) {
+          this.busArrivalResolved = true;
+          this.frozenElapsedSeconds = this.getElapsedSeconds(nowMs);
+          this.transitionTo(GameState.WrongBus);
+          return;
+        }
+      } else if (this.bus.x > GAME_CONFIG.busStopMaxX) {
+        this.busArrivalResolved = true;
+      }
     }
 
     if (this.state === GameState.RidingBus) {
@@ -827,14 +1037,11 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private canBoardBus(): boolean {
+  private isPlayerInBoardingZone(kind: 'red' | 'wrong'): boolean {
+    const centerX = kind === 'red' ? RED_BOARDING_X : WRONG_BOARDING_X;
     return (
-      !this.hasRiddenBus &&
-      this.bus.visible &&
-      this.bus.x >= GAME_CONFIG.busStopMinX &&
-      this.bus.x <= GAME_CONFIG.busStopMaxX &&
-      Math.abs(this.player.x - this.bus.x) <= 190 &&
-      Math.abs(this.player.y - this.bus.y) <= 104
+      Math.abs(this.player.x - centerX) <= BOARDING_WIDTH / 2 &&
+      Math.abs(this.player.y - BOARDING_Y) <= BOARDING_HEIGHT / 2
     );
   }
 
@@ -849,20 +1056,23 @@ export class GameScene extends Phaser.Scene {
     body.enable = false;
     this.player.setAlpha(1);
     this.bossPanel.setVisible(false);
-    this.objective = '목표: 광역버스로 회사까지 이동 중입니다.';
+    this.objective = '목표: 빨간 광역버스에 올라타세요.';
     this.objectiveText.setText(this.objective);
+    this.updateStageProgress();
     this.syncPlayerToBus();
   }
 
   private syncPlayerToBus(): void {
     this.player.setPosition(this.bus.x + BUS_RIDER_OFFSET_X, this.bus.y + BUS_RIDER_OFFSET_Y);
     this.playerIndicator.setPosition(this.player.x, this.player.y - 44).setRotation(Math.PI / 2);
+    this.syncBusLabel();
   }
 
   private finishBusRide(): void {
     this.hasRiddenBus = true;
     this.state = GameState.Playing;
-    const dropX = GAME_CONFIG.busDropOffX + 45;
+    this.stage = GameStage.Lobby;
+    const dropX = 3040;
     const dropY = 470;
     const body = this.player.body as Phaser.Physics.Arcade.Body;
     body.enable = true;
@@ -871,14 +1081,42 @@ export class GameScene extends Phaser.Scene {
     this.player.setPosition(dropX, dropY).setAlpha(1);
     this.playerIndicator.setPosition(dropX, dropY - 44).setRotation(Math.PI / 2);
     this.startBusCooldown(performance.now());
-    this.updateObjective(true);
+    this.updateStageAndObjective(true);
   }
 
   private startBusCooldown(nowMs: number): void {
     this.busPhase = 'cooldown';
     this.busRespawnAtMs = nowMs + GAME_CONFIG.busRespawnIntervalMs;
     this.bus.setVisible(false);
+    this.busDestinationText.setVisible(false);
     this.bus.setPosition(GAME_CONFIG.busSpawnX, BUS_Y);
+  }
+
+  private spawnBus(kind: BusKind): void {
+    this.busKind = kind;
+    this.nextBusKind = kind === 'red' ? (Math.random() < 0.5 ? 'blue' : 'green') : 'red';
+    this.busArrivalResolved = false;
+    this.busPhase = 'moving';
+    this.bus
+      .setTexture(`bus-${kind}`)
+      .setPosition(GAME_CONFIG.busSpawnX, BUS_Y)
+      .setVisible(true);
+    this.busDestinationText
+      .setText(kind === 'red' ? '강남 · 회사' : '반대 방향')
+      .setColor('#ffffff')
+      .setBackgroundColor(kind === 'red' ? '#7f1d1dee' : '#1e3a8aee')
+      .setVisible(true);
+    this.syncBusLabel();
+  }
+
+  private syncBusLabel(): void {
+    this.busDestinationText.setPosition(this.bus.x, this.bus.y - 68).setVisible(this.bus.visible);
+  }
+
+  private clearQueueNpcs(): void {
+    this.queueNpcs.forEach((npc) => npc.destroy());
+    this.queueNpcs = [];
+    this.queueNpcCount = 0;
   }
 
   private checkItemContacts(nowMs: number): void {
@@ -898,8 +1136,10 @@ export class GameScene extends Phaser.Scene {
 
     this.coffeeCollected = true;
     this.coffee.setVisible(false).setActive(false);
+    this.coffeeLabel.setVisible(false).setActive(false);
     this.coffeeUntilMs = nowMs + GAME_CONFIG.coffeeDurationMs;
     this.currentSpeed = GAME_CONFIG.playerBaseSpeed * GAME_CONFIG.coffeeSpeedMultiplier;
+    this.showPlayerDialogue(nowMs);
   }
 
   private collectResignation(): void {
@@ -918,6 +1158,7 @@ export class GameScene extends Phaser.Scene {
       this.state === GameState.Playing &&
       this.overlaps(this.player, this.scanner, 24, 28)
     ) {
+      this.stage = GameStage.Fingerprint;
       this.frozenElapsedSeconds = this.getElapsedSeconds(performance.now());
       this.transitionTo(GameState.Cleared);
     }
@@ -940,35 +1181,83 @@ export class GameScene extends Phaser.Scene {
     );
   }
 
-  private updateObjective(force = false): void {
-    let nextObjective: string;
+  private updateStageAndObjective(force = false): void {
+    const previousStage = this.stage;
 
-    if (this.state === GameState.RidingBus) {
-      nextObjective = '목표: 광역버스로 회사까지 이동 중입니다.';
-    } else if (this.hasRiddenBus) {
-      nextObjective = '목표: 회사 지문 인식기로 이동하세요.';
-    } else if (this.player.x >= 1360) {
-      nextObjective = '목표: 광역버스에 올라타세요.';
-    } else {
-      nextObjective = '목표: 지하철 출구로 이동하세요.';
+    if (!this.hasRiddenBus && this.player.x >= 1360) {
+      this.stage = GameStage.Bus;
+    } else if (this.hasRiddenBus && this.stage === GameStage.Bus) {
+      this.stage = GameStage.Lobby;
     }
 
-    if (force || nextObjective !== this.objective) {
+    if (
+      this.hasRiddenBus &&
+      this.stage === GameStage.Lobby &&
+      this.player.x >= FINGERPRINT_STAGE_X
+    ) {
+      this.stage = GameStage.Fingerprint;
+    }
+
+    const objectives: Record<GameStage, string> = {
+      [GameStage.Subway]: '목표: 지하철 출구로 이동하세요.',
+      [GameStage.Bus]: '목표: 빨간 광역버스에 올라타세요.',
+      [GameStage.Lobby]: '목표: 고장난 에스컬레이터를 우회하세요.',
+      [GameStage.Fingerprint]: '목표: 지문 인식기로 이동하세요.',
+    };
+    const nextObjective = objectives[this.stage];
+
+    if (force || nextObjective !== this.objective || previousStage !== this.stage) {
       this.objective = nextObjective;
-      this.objectiveText?.setText(nextObjective);
+      this.objectiveText?.setText(nextObjective).setAlpha(0.55);
+      this.tweens.add({
+        targets: this.objectiveText,
+        alpha: 1,
+        duration: 180,
+        ease: 'Sine.Out',
+      });
+      this.updateStageProgress();
     }
   }
 
-  private updateHud(nowMs: number, force = false): void {
-    const clockSecond = Math.min(
-      GAME_CONFIG.timeLimitSeconds,
-      Math.floor(this.getElapsedSeconds(nowMs)),
-    );
-
-    if (force || clockSecond !== this.lastDisplayedClockSecond) {
-      this.lastDisplayedClockSecond = clockSecond;
-      this.clockText.setText(`출근 시각 ${this.formatClock(clockSecond)}`);
+  private updateStageProgress(): void {
+    if (this.stageTexts.length === 0) {
+      return;
     }
+    const orderedStages = [
+      GameStage.Subway,
+      GameStage.Bus,
+      GameStage.Lobby,
+      GameStage.Fingerprint,
+    ];
+    const labels = ['지하철', '버스', '로비', '지문 인식'];
+    const currentIndex = orderedStages.indexOf(this.stage);
+
+    this.stageTexts.forEach((text, index) => {
+      const isComplete = this.state === GameState.Cleared || index < currentIndex;
+      const isCurrent = index === currentIndex && this.state !== GameState.Cleared;
+      const symbol = isComplete ? '✓' : isCurrent ? '●' : '○';
+      text
+        .setText(`${symbol} ${labels[index]}`)
+        .setColor(isComplete ? '#86efac' : isCurrent ? '#facc15' : '#64748b');
+    });
+  }
+
+  private updateHud(nowMs: number, force = false): void {
+    const elapsedSeconds = Math.min(GAME_CONFIG.timeLimitSeconds, this.getElapsedSeconds(nowMs));
+    const remainingSeconds = Math.max(0, Math.ceil(GAME_CONFIG.timeLimitSeconds - elapsedSeconds));
+
+    if (force || remainingSeconds !== this.lastDisplayedClockSecond) {
+      this.lastDisplayedClockSecond = remainingSeconds;
+      this.clockText.setText(`출근까지 남은 시간 ${this.formatRemainingTime(remainingSeconds)}`);
+    }
+
+    const urgent = remainingSeconds <= 10;
+    const critical = remainingSeconds <= 5;
+    const pulse = urgent ? 0.86 + (Math.sin(nowMs / (critical ? 120 : 180)) + 1) * 0.07 : 1;
+    this.clockText
+      .setColor(urgent ? '#f87171' : '#f8fafc')
+      .setAlpha(pulse)
+      .setScale(critical ? 1.035 : 1);
 
     this.mentalText.setText(this.formatMentalText());
 
@@ -985,6 +1274,14 @@ export class GameScene extends Phaser.Scene {
     return `정신력 ${this.mental}/${GAME_CONFIG.maxMental} ${'■'.repeat(this.mental)}${'□'.repeat(
       GAME_CONFIG.maxMental - this.mental,
     )}`;
+  }
+
+  private formatRemainingTime(seconds: number): string {
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${minutes.toString().padStart(2, '0')}:${remainingSeconds
+      .toString()
+      .padStart(2, '0')}`;
   }
 
   private getElapsedSeconds(nowMs: number): number {
@@ -1013,6 +1310,10 @@ export class GameScene extends Phaser.Scene {
     body.enable = false;
     this.player.setAlpha(1);
     this.bossPanel.setVisible(false);
+    this.playerDialogueText.setVisible(false);
+    this.noticeText.setVisible(false);
+    this.currentSpeed = GAME_CONFIG.playerBaseSpeed;
+    this.coffeeUntilMs = 0;
 
     if (nextState === GameState.Late) {
       this.frozenElapsedSeconds = GAME_CONFIG.timeLimitSeconds;
@@ -1037,9 +1338,20 @@ export class GameScene extends Phaser.Scene {
     } else if (nextState === GameState.MentalBreak) {
       this.frozenElapsedSeconds = this.getElapsedSecondsBeforeTerminal();
       this.showResult('멘탈이 먼저 퇴근했습니다.', '출근 실패', '#a855f7');
+    } else if (nextState === GameState.WrongBus) {
+      this.showResult(
+        '경로를 이탈했습니다.',
+        '이 버스는 회사로 가지 않습니다.\n\n출근 실패',
+        '#60a5fa',
+      );
     }
 
-    this.clockText.setText(`출근 시각 ${this.formatClock(this.frozenElapsedSeconds)}`);
+    this.clockText.setText(
+      `출근까지 남은 시간 ${this.formatRemainingTime(
+        Math.max(0, Math.ceil(GAME_CONFIG.timeLimitSeconds - this.frozenElapsedSeconds)),
+      )}`,
+    );
+    this.updateStageProgress();
   }
 
   private getElapsedSecondsBeforeTerminal(): number {
@@ -1059,12 +1371,17 @@ export class GameScene extends Phaser.Scene {
       setElapsedSeconds: (seconds) => {
         this.runStartedAtMs = performance.now() - Math.max(0, seconds) * 1000;
       },
-      summonBusAtStop: () => {
-        this.busPhase = 'moving';
-        this.bus.setPosition(1775, BUS_Y).setVisible(true);
+      summonBusAtStop: (kind = 'red') => {
+        this.stage = GameStage.Bus;
+        this.spawnBus(kind);
+        this.bus.setPosition(GAME_CONFIG.busStopMinX + 25, BUS_Y).setVisible(true);
+        this.busArrivalResolved = false;
         this.busRespawnAtMs = 0;
-        this.teleportPlayer(1775, BUS_Y + 90);
+        this.selectBoardingZone(kind === 'red' ? 'red' : 'wrong');
+        this.syncBusLabel();
       },
+      selectBoardingZone: (kind) => this.selectBoardingZone(kind),
+      setQueueNpcCount: (count) => this.setQueueNpcCount(count),
       forceBusArrival: () => {
         if (this.state === GameState.RidingBus) {
           this.bus.x = GAME_CONFIG.busDropOffX + 2;
@@ -1073,8 +1390,10 @@ export class GameScene extends Phaser.Scene {
       },
       forceBusMiss: () => {
         if (this.state === GameState.Playing) {
+          this.stage = GameStage.Bus;
           this.busPhase = 'moving';
           this.bus.setPosition(GAME_CONFIG.busEndX + 2, BUS_Y).setVisible(true);
+          this.busDestinationText.setVisible(true);
         }
       },
       damageFromCrowd: (index = 0) => {
@@ -1108,8 +1427,12 @@ export class GameScene extends Phaser.Scene {
 
     return {
       state: this.state,
+      stage: this.stage,
       elapsedSeconds,
       clockText: this.formatClock(elapsedSeconds),
+      remainingTimeText: this.formatRemainingTime(
+        Math.max(0, Math.ceil(GAME_CONFIG.timeLimitSeconds - elapsedSeconds)),
+      ),
       mental: this.mental,
       currentSpeed: this.currentSpeed,
       coffeeRemainingSeconds: Math.max(0, this.coffeeUntilMs - nowMs) / 1000,
@@ -1118,17 +1441,37 @@ export class GameScene extends Phaser.Scene {
       busX: this.bus.x,
       busY: this.bus.y,
       busVisible: this.bus.visible,
+      busKind: this.busKind,
       crowdCount: this.crowd.length,
       sceneCrowdCount: this.children.list.filter((child) => child.name === 'crowd-npc').length,
       sceneBusCount: this.children.list.filter((child) => child.name === 'commute-bus').length,
       objective: this.objective,
       coffeeVisible: this.coffee.visible,
+      coffeeLabelVisible: this.coffeeLabel.visible,
       resignationVisible: this.resignation.visible,
       hasRiddenBus: this.hasRiddenBus,
       resultVisible: this.resultOverlay.visible,
       dialogueVisible: this.bossPanel.visible,
       dialogueText: this.bossDialogueText.text,
+      playerDialogueVisible: this.playerDialogueText.visible,
+      queueNpcCount: this.queueNpcCount,
+      sceneQueueNpcCount: this.children.list.filter((child) => child.name === 'queue-npc').length,
+      fullBusMissed: this.fullBusMissed,
     };
+  }
+
+  private selectBoardingZone(kind: 'red' | 'wrong'): void {
+    this.stage = GameStage.Bus;
+    this.teleportPlayer(kind === 'red' ? RED_BOARDING_X : WRONG_BOARDING_X, BOARDING_Y);
+    this.updateStageAndObjective(true);
+  }
+
+  private setQueueNpcCount(count: number): void {
+    this.queueNpcs.forEach((npc) => npc.destroy());
+    this.queueNpcs = [];
+    this.queueNpcCount = Phaser.Math.Clamp(Math.floor(count), 0, 6);
+    this.fullBusMissed = false;
+    this.createQueueNpcs();
   }
 
   private teleportPlayer(x: number, y: number): void {

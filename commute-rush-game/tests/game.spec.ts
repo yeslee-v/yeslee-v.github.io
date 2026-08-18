@@ -32,6 +32,14 @@ async function invoke(page: Page, method: keyof NonNullable<Window['__COMMUTE_RU
   }, method);
 }
 
+async function setQueueNpcCount(page: Page, count: number): Promise<void> {
+  await page.evaluate((value) => window.__COMMUTE_RUSH_TEST__?.setQueueNpcCount(value), count);
+}
+
+async function summonBus(page: Page, kind: 'red' | 'blue' | 'green'): Promise<void> {
+  await page.evaluate((busKind) => window.__COMMUTE_RUSH_TEST__?.summonBusAtStop(busKind), kind);
+}
+
 async function expectNoRuntimeErrors(page: Page, runtimeErrors: string[]): Promise<void> {
   await page.waitForTimeout(100);
   expect(runtimeErrors).toEqual([]);
@@ -58,13 +66,19 @@ test('성공 루프: 이동 → 버스 탑승/하차 → 지문 인식 → R 재
   expect(initial.crowdCount).toBe(10);
   expect(initial.sceneCrowdCount).toBe(10);
   expect(initial.sceneBusCount).toBe(1);
+  expect(initial.stage).toBe('Subway');
+  expect(initial.remainingTimeText).toBe('01:30');
+  expect(initial.queueNpcCount).toBeGreaterThanOrEqual(0);
+  expect(initial.queueNpcCount).toBeLessThanOrEqual(6);
+  expect(initial.sceneQueueNpcCount).toBe(initial.queueNpcCount);
 
   await page.keyboard.down('KeyD');
   await page.waitForTimeout(250);
   await page.keyboard.up('KeyD');
   expect((await snapshot(page)).playerX).toBeGreaterThan(initial.playerX + 25);
 
-  await invoke(page, 'summonBusAtStop');
+  await setQueueNpcCount(page, 0);
+  await summonBus(page, 'red');
   await page.waitForFunction(() => window.__COMMUTE_RUSH_TEST__?.snapshot().state === 'RidingBus');
   const ridingBefore = await snapshot(page);
   const initialOffset = ridingBefore.playerX - ridingBefore.busX;
@@ -107,6 +121,8 @@ test('성공 루프: 이동 → 버스 탑승/하차 → 지문 인식 → R 재
   expect(restarted.resignationVisible).toBe(true);
   expect(restarted.sceneCrowdCount).toBe(10);
   expect(restarted.sceneBusCount).toBe(1);
+  expect(restarted.coffeeLabelVisible).toBe(true);
+  expect(restarted.stage).toBe('Subway');
 
   await expectNoRuntimeErrors(page, runtimeErrors);
 });
@@ -120,6 +136,7 @@ test('지각: 실제 경과시간 기준 09:00:00 즉시 종료 및 이동 중�
 
   const late = await snapshot(page);
   expect(late.clockText).toBe('09:00:00');
+  expect(late.remainingTimeText).toBe('00:00');
   expect(late.resultVisible).toBe(true);
 
   const frozenX = late.playerX;
@@ -142,6 +159,9 @@ test('정신력: 800ms 재피격 방지, 단일 대사, 0에서 MentalBreak', as
   expect(current.mental).toBe(4);
   expect(current.dialogueVisible).toBe(true);
   expect(current.dialogueText.length).toBeGreaterThan(0);
+  expect(['안 비켜! 다음 차 타!', '비켜! 나 먼저!', '내릴 사람? 난 모르겠는데?', '출근길 처음 봐?']).toContain(
+    current.dialogueText,
+  );
 
   await invoke(page, 'damageFromCrowd');
   expect((await snapshot(page)).mental).toBe(4);
@@ -169,6 +189,8 @@ test('커피: 35% 가속, HUD 카운트다운, 5초 후 정확한 기본 속도 
   await invoke(page, 'collectCoffee');
   const boosted = await snapshot(page);
   expect(boosted.coffeeVisible).toBe(false);
+  expect(boosted.coffeeLabelVisible).toBe(false);
+  expect(boosted.playerDialogueVisible).toBe(true);
   expect(boosted.currentSpeed).toBeCloseTo(230 * 1.35, 4);
   expect(boosted.coffeeRemainingSeconds).toBeGreaterThan(4.7);
   expect(boosted.coffeeRemainingSeconds).toBeLessThanOrEqual(5);
@@ -198,13 +220,14 @@ test('버스: 놓치면 재등장, 자동 탑승, 좌표 동기화, 자동 하�
   await page.waitForFunction(
     () => {
       const state = window.__COMMUTE_RUSH_TEST__?.snapshot();
-      return Boolean(state?.busVisible && state.busX < 1500);
+      return Boolean(state?.busVisible && state.busX <= 1650);
     },
     undefined,
     { timeout: 4_000 },
   );
 
-  await invoke(page, 'summonBusAtStop');
+  await setQueueNpcCount(page, 0);
+  await summonBus(page, 'red');
   await page.waitForFunction(() => window.__COMMUTE_RUSH_TEST__?.snapshot().state === 'RidingBus');
   const before = await snapshot(page);
   await page.waitForTimeout(250);
@@ -224,6 +247,48 @@ test('버스: 놓치면 재등장, 자동 탑승, 좌표 동기화, 자동 하�
   await page.waitForTimeout(200);
   await page.keyboard.up('KeyD');
   expect((await snapshot(page)).playerX).toBeGreaterThan(xBeforeMove + 20);
+  await expectNoRuntimeErrors(page, runtimeErrors);
+});
+
+test('오답 버스: 일반버스 승차 위치를 선택한 경우에만 WrongBus', async ({ page }) => {
+  const runtimeErrors = collectRuntimeErrors(page);
+  await waitForGame(page);
+  await setQueueNpcCount(page, 0);
+
+  await summonBus(page, 'blue');
+  await page.waitForFunction(() => window.__COMMUTE_RUSH_TEST__?.snapshot().state === 'WrongBus');
+  const wrongBus = await snapshot(page);
+  expect(wrongBus.resultVisible).toBe(true);
+  expect(wrongBus.stage).toBe('Bus');
+
+  const frozenSeconds = wrongBus.elapsedSeconds;
+  await page.waitForTimeout(250);
+  expect((await snapshot(page)).elapsedSeconds).toBeCloseTo(frozenSeconds, 2);
+
+  await page.keyboard.press('KeyR');
+  await page.waitForFunction(() => window.__COMMUTE_RUSH_TEST__?.snapshot().state === 'Playing');
+  await expectNoRuntimeErrors(page, runtimeErrors);
+});
+
+test('만원 버스: NPC 6명일 때 첫 빨간 버스를 놓치고 다음 빨간 버스 탑승', async ({ page }) => {
+  const runtimeErrors = collectRuntimeErrors(page);
+  await waitForGame(page);
+  await setQueueNpcCount(page, 6);
+
+  await summonBus(page, 'red');
+  await page.waitForFunction(() => window.__COMMUTE_RUSH_TEST__?.snapshot().fullBusMissed);
+  const missed = await snapshot(page);
+  expect(missed.state).toBe('Playing');
+  expect(missed.queueNpcCount).toBe(0);
+  expect(missed.sceneQueueNpcCount).toBe(0);
+
+  await page.waitForFunction(
+    () => window.__COMMUTE_RUSH_TEST__?.snapshot().state === 'RidingBus',
+    undefined,
+    { timeout: 9_000 },
+  );
+  const secondBus = await snapshot(page);
+  expect(secondBus.busKind).toBe('red');
   await expectNoRuntimeErrors(page, runtimeErrors);
 });
 

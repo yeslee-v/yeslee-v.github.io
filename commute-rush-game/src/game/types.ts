@@ -7,7 +7,17 @@ export enum GameState {
   Late = 'Late',
   Resigned = 'Resigned',
   MentalBreak = 'MentalBreak',
+  WrongBus = 'WrongBus',
 }
+
+export enum GameStage {
+  Subway = 'Subway',
+  Bus = 'Bus',
+  Lobby = 'Lobby',
+  Fingerprint = 'Fingerprint',
+}
+
+export type BusKind = 'red' | 'blue' | 'green';
 
 export interface CrowdActor {
   sprite: Phaser.GameObjects.Sprite;
@@ -21,8 +31,10 @@ export interface CrowdActor {
 
 export interface GameSnapshot {
   state: GameState;
+  stage: GameStage;
   elapsedSeconds: number;
   clockText: string;
+  remainingTimeText: string;
   mental: number;
   currentSpeed: number;
   coffeeRemainingSeconds: number;
@@ -31,23 +43,31 @@ export interface GameSnapshot {
   busX: number;
   busY: number;
   busVisible: boolean;
+  busKind: BusKind;
   crowdCount: number;
   sceneCrowdCount: number;
   sceneBusCount: number;
   objective: string;
   coffeeVisible: boolean;
+  coffeeLabelVisible: boolean;
   resignationVisible: boolean;
   hasRiddenBus: boolean;
   resultVisible: boolean;
   dialogueVisible: boolean;
   dialogueText: string;
+  playerDialogueVisible: boolean;
+  queueNpcCount: number;
+  sceneQueueNpcCount: number;
+  fullBusMissed: boolean;
 }
 
 export interface CommuteRushTestApi {
   snapshot(): GameSnapshot;
   teleport(x: number, y: number): void;
   setElapsedSeconds(seconds: number): void;
-  summonBusAtStop(): void;
+  summonBusAtStop(kind?: BusKind): void;
+  selectBoardingZone(kind: 'red' | 'wrong'): void;
+  setQueueNpcCount(count: number): void;
   forceBusArrival(): void;
   forceBusMiss(): void;
   damageFromCrowd(index?: number): void;
@@ -69,6 +89,7 @@ export function isTerminalState(state: GameState): boolean {
     state === GameState.Cleared ||
     state === GameState.Late ||
     state === GameState.Resigned ||
-    state === GameState.MentalBreak
+    state === GameState.MentalBreak ||
+    state === GameState.WrongBus
   );
 }
