@@ -1,0 +1,60 @@
+name: Squeeze In build and publish
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'squeeze-in-game/**'
+      - '.github/workflows/squeeze-in.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: squeeze-in-publish
+  cancel-in-progress: true
+
+jobs:
+  build-and-publish:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: squeeze-in-game/package-lock.json
+
+      - name: Install dependencies
+        working-directory: squeeze-in-game
+        run: npm ci
+
+      - name: Type-check and build
+        working-directory: squeeze-in-game
+        run: npm run build
+
+      - name: Stage static GitHub Pages output
+        run: |
+          rm -rf squeeze-in
+          mkdir -p squeeze-in
+          cp -R squeeze-in-game/dist/. squeeze-in/
+          touch squeeze-in/.nojekyll
+
+      - name: Commit verified deployment output
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add squeeze-in .github/workflows/squeeze-in.yml
+          if git diff --cached --quiet; then
+            echo 'No deployment changes to publish.'
+            exit 0
+          fi
+          git commit -m 'chore: publish squeeze in prototype'
+          git push origin HEAD:main
