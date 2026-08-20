@@ -15,7 +15,7 @@ export enum FailureReason {
 }
 
 export type NpcKind = "normal" | "backpack" | "alighter" | "rival";
-export type NpcBody = "slim" | "normal" | "tall" | "large" | "backpack";
+export type NpcBody = "slim" | "normal" | "large" | "backpack" | "luggage";
 
 export interface Actor {
   id: number;
@@ -44,6 +44,7 @@ export interface Npc extends Actor {
   heightScale: number;
   widthScale: number;
   headScale: number;
+  moveScale: number;
   impactCooldown: number;
 }
 
@@ -98,5 +99,8 @@ export interface GameSnapshot {
   hitStop: number;
   npcCounts: Record<NpcKind, number>;
   bodyCounts: Record<NpcBody, number>;
+  wallViolations: number;
+  lastChainCount: number;
+  pressureContacts: number;
   lastAttemptResult: string;
 }

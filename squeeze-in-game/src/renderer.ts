@@ -96,6 +96,9 @@ export class Renderer {
   private drawDoors(game: Game): void {
     const ctx = this.ctx;
     const halfWidth = (DOOR_RIGHT - DOOR_LEFT) * 0.5 * game.doorProgress;
+    ctx.fillStyle = "#6d828b";
+    ctx.fillRect(DOOR_LEFT - 10, TRAIN_TOP + 34, 10, TRAIN_FLOOR - TRAIN_TOP - 24);
+    ctx.fillRect(DOOR_RIGHT, TRAIN_TOP + 34, 10, TRAIN_FLOOR - TRAIN_TOP - 24);
     if (halfWidth <= 0.5) {
       ctx.fillStyle = game.timeRemaining <= 3 && Math.floor(game.timeRemaining * 5) % 2 === 0 ? COLORS.red : "#5a717b";
       ctx.beginPath();
@@ -107,10 +110,10 @@ export class Renderer {
     ctx.fillStyle = "#b8c7cd";
     ctx.strokeStyle = "#70858f";
     ctx.lineWidth = 4;
-    ctx.fillRect(DOOR_LEFT, TRAIN_TOP + 50, halfWidth, TRAIN_FLOOR - TRAIN_TOP - 42);
-    ctx.strokeRect(DOOR_LEFT, TRAIN_TOP + 50, halfWidth, TRAIN_FLOOR - TRAIN_TOP - 42);
-    ctx.fillRect(DOOR_RIGHT - halfWidth, TRAIN_TOP + 50, halfWidth, TRAIN_FLOOR - TRAIN_TOP - 42);
-    ctx.strokeRect(DOOR_RIGHT - halfWidth, TRAIN_TOP + 50, halfWidth, TRAIN_FLOOR - TRAIN_TOP - 42);
+    ctx.fillRect(DOOR_LEFT, TRAIN_TOP + 34, halfWidth, TRAIN_FLOOR - TRAIN_TOP - 26);
+    ctx.strokeRect(DOOR_LEFT, TRAIN_TOP + 34, halfWidth, TRAIN_FLOOR - TRAIN_TOP - 26);
+    ctx.fillRect(DOOR_RIGHT - halfWidth, TRAIN_TOP + 34, halfWidth, TRAIN_FLOOR - TRAIN_TOP - 26);
+    ctx.strokeRect(DOOR_RIGHT - halfWidth, TRAIN_TOP + 34, halfWidth, TRAIN_FLOOR - TRAIN_TOP - 26);
   }
 
   private drawPersonBase(
@@ -156,7 +159,7 @@ export class Renderer {
       ctx.strokeStyle = `rgba(255,225,79,${0.55 + Math.sin(performance.now() * 0.02) * 0.25})`;
       ctx.lineWidth = 4;
       ctx.beginPath();
-      ctx.arc(player.position.x, player.position.y, 28 + Math.sin(performance.now() * 0.03) * 3, 0, Math.PI * 2);
+      ctx.arc(player.position.x, player.position.y, player.radius + 8 + Math.sin(performance.now() * 0.03) * 3, 0, Math.PI * 2);
       ctx.stroke();
     }
     this.drawPersonBase(
@@ -168,10 +171,18 @@ export class Renderer {
       "#efbb96",
       player.squash,
     );
-    ctx.fillStyle = COLORS.white;
-    ctx.font = "900 11px system-ui";
-    ctx.textAlign = "center";
-    ctx.fillText("YOU", player.position.x, player.position.y + 8);
+    ctx.strokeStyle = COLORS.cyan;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(player.position.x, player.position.y, player.radius + 3, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = COLORS.cyan;
+    ctx.beginPath();
+    ctx.moveTo(player.position.x, player.position.y - player.radius * 1.62);
+    ctx.lineTo(player.position.x - 8, player.position.y - player.radius * 1.9);
+    ctx.lineTo(player.position.x + 8, player.position.y - player.radius * 1.9);
+    ctx.closePath();
+    ctx.fill();
   }
 
   private drawNpc(npc: Npc): void {
@@ -190,14 +201,26 @@ export class Renderer {
       npc.headScale,
     );
     const ctx = this.ctx;
-    if (npc.kind === "backpack") {
+    if (npc.body === "backpack") {
       ctx.fillStyle = "#4b3428";
       this.roundRect(npc.position.x + npc.radius * 0.35, npc.position.y - 5, npc.radius * 0.92, npc.radius * 1.34, 8);
       ctx.fill();
       ctx.strokeStyle = "#241c17";
       ctx.lineWidth = 3;
       ctx.stroke();
-    } else if (npc.kind === "alighter") {
+    } else if (npc.body === "luggage") {
+      ctx.fillStyle = "#cc8b42";
+      this.roundRect(npc.position.x + npc.radius * 0.42, npc.position.y + npc.radius * 0.05, npc.radius * 0.9, npc.radius * 0.78, 5);
+      ctx.fill();
+      ctx.strokeStyle = "#5c3a24";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(npc.position.x + npc.radius * 0.66, npc.position.y + npc.radius * 0.05);
+      ctx.lineTo(npc.position.x + npc.radius * 0.66, npc.position.y - npc.radius * 0.36);
+      ctx.stroke();
+    }
+    if (npc.kind === "alighter") {
       ctx.fillStyle = COLORS.white;
       ctx.font = "900 14px system-ui";
       ctx.textAlign = "center";

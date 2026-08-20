@@ -33,6 +33,10 @@ const frame = (now: number): void => {
   canvas.dataset.lives = String(snapshot.lives);
   canvas.dataset.door = String(snapshot.doorProgress);
   canvas.dataset.hitStop = String(snapshot.hitStop);
+  canvas.dataset.wallViolations = String(snapshot.wallViolations);
+  canvas.dataset.chainHits = String(snapshot.lastChainCount);
+  canvas.dataset.pressureContacts = String(snapshot.pressureContacts);
+  canvas.dataset.bodyCounts = Object.entries(snapshot.bodyCounts).map(([body, count]) => `${body}:${count}`).join(",");
   canvas.dataset.lastResult = snapshot.lastAttemptResult;
   requestAnimationFrame(frame);
 };

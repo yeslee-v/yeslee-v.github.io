@@ -14,6 +14,7 @@ import {
   FailureReason,
   GamePhase,
   type Burst,
+  type Actor,
   type FloatingText,
   type GameSnapshot,
   type ImpactMark,
@@ -31,12 +32,12 @@ const normalize = (vector: Vec2): Vec2 => {
   return magnitude > 0.001 ? { x: vector.x / magnitude, y: vector.y / magnitude } : { x: 0, y: -1 };
 };
 
-const BODY_STATS: Record<NpcBody, { radius: number; resistance: number; height: number; width: number }> = {
-  slim: { radius: 21, resistance: 0.85, height: 0.96, width: 0.78 },
-  normal: { radius: 25, resistance: 1.35, height: 1, width: 1 },
-  tall: { radius: 25, resistance: 1.35, height: 1.2, width: 0.96 },
-  large: { radius: 30, resistance: 2.3, height: 1.06, width: 1.2 },
-  backpack: { radius: 33, resistance: 3.75, height: 1.04, width: 1.14 },
+const BODY_STATS: Record<NpcBody, { radius: number; resistance: number; height: number; width: number; move: number }> = {
+  slim: { radius: 25, resistance: 0.85, height: 0.96, width: 0.76, move: 1.08 },
+  normal: { radius: 30, resistance: 1.35, height: 1, width: 1, move: 1 },
+  large: { radius: 36, resistance: 2.3, height: 1.05, width: 1.18, move: 0.84 },
+  backpack: { radius: 39, resistance: 3.75, height: 1.03, width: 1.12, move: 0.72 },
+  luggage: { radius: 37, resistance: 2.9, height: 0.98, width: 0.94, move: 0.62 },
 };
 
 const SKIN_TONES = ["#f2c8a8", "#dca27e", "#b97855", "#8f563f"];
@@ -66,6 +67,8 @@ export class Game {
   shake = 0;
   flash = 0;
   hitStop = 0;
+  lastChainCount = 0;
+  pressureContacts = 0;
   lives = 3;
   lastAttemptResult = "";
   coffee?: Vec2;
@@ -124,6 +127,7 @@ export class Game {
       this.updateNpcs(safeDt);
       this.resolveNpcPairs();
       this.resolvePlayerCollisions();
+      this.applyCrowdPressure(safeDt);
       this.checkCoffee();
       if (this.timeRemaining <= 0) this.judgeResult();
     }
@@ -152,6 +156,8 @@ export class Game {
     this.shake = 0;
     this.flash = 0;
     this.hitStop = 0;
+    this.lastChainCount = 0;
+    this.pressureContacts = 0;
     this.lastStrongEjection = -99;
     this.coffee = stage.coffee ? { ...stage.coffee } : undefined;
     this.coffeeTaken = false;
@@ -185,6 +191,7 @@ export class Game {
         heightScale: stats.height * (0.96 + (spawnIndex % 3) * 0.035),
         widthScale: stats.width,
         headScale: 0.9 + (spawnIndex % 4) * 0.06,
+        moveScale: stats.move,
         impactCooldown: 0,
       };
     });
@@ -203,7 +210,7 @@ export class Game {
 
   getSnapshot(): GameSnapshot {
     const npcCounts: Record<NpcKind, number> = { normal: 0, backpack: 0, alighter: 0, rival: 0 };
-    const bodyCounts: Record<NpcBody, number> = { slim: 0, normal: 0, tall: 0, large: 0, backpack: 0 };
+    const bodyCounts: Record<NpcBody, number> = { slim: 0, normal: 0, large: 0, backpack: 0, luggage: 0 };
     this.npcs.filter((npc) => npc.active).forEach((npc) => npcCounts[npc.kind]++);
     this.npcs.filter((npc) => npc.active).forEach((npc) => bodyCounts[npc.body]++);
     return {
@@ -219,6 +226,9 @@ export class Game {
       hitStop: Number(this.hitStop.toFixed(3)),
       npcCounts,
       bodyCounts,
+      wallViolations: this.countWallViolations(),
+      lastChainCount: this.lastChainCount,
+      pressureContacts: this.pressureContacts,
       lastAttemptResult: this.lastAttemptResult,
     };
   }
@@ -241,14 +251,7 @@ export class Game {
   }
 
   private movePlayer(dx: number, dy: number): void {
-    const previousY = this.player.position.y;
-    this.player.position.x = clamp(this.player.position.x + dx, 38, VIEW_WIDTH - 38);
-    this.player.position.y = clamp(this.player.position.y + dy, 142, PLATFORM_BOTTOM - this.player.radius);
-    const crossingFloor = previousY - this.player.radius >= TRAIN_FLOOR && this.player.position.y - this.player.radius < TRAIN_FLOOR;
-    if (crossingFloor && !this.insideDoorOpening(this.player.position.x, this.player.radius)) {
-      this.player.position.y = TRAIN_FLOOR + this.player.radius;
-      this.player.velocity.y = Math.max(0, this.player.velocity.y);
-    }
+    this.moveActor(this.player, dx, dy, 142, PLATFORM_BOTTOM - this.player.radius);
   }
 
   private performPush(): void {
@@ -268,15 +271,18 @@ export class Game {
     player.pushFlash = 0.16;
     player.squash = succeeds ? 0.18 : -0.22;
     this.flash = targets.length > 0 ? 0.055 : 0;
+    this.lastChainCount = 0;
 
     if (succeeds) {
       const dash = player.caffeineTime > 0 ? 70 : targets.length > 0 ? 52 : 34;
       this.movePlayer(forwardBias.x * dash, forwardBias.y * dash);
+      const visited = new Set<number>(targets.map((npc) => npc.id));
       for (const npc of targets) {
         const impulse = player.caffeineTime > 0 ? 290 : 175;
         npc.velocity.x += forwardBias.x * impulse / npc.resistance;
         npc.velocity.y += forwardBias.y * impulse / npc.resistance;
         npc.squash = 0.2;
+        this.propagatePush(npc, forwardBias, impulse * 0.6, 1, visited);
       }
       this.spawnImpact({
         x: player.position.x + forwardBias.x * 34,
@@ -313,33 +319,25 @@ export class Game {
       if (npc.kind === "alighter") {
         if (this.stageElapsed < 0.45) continue;
         const desiredX = npc.position.y < TRAIN_FLOOR - 6 ? 480 + (npc.targetX - 480) * 0.3 : npc.targetX;
-        npc.velocity.x += (desiredX - npc.position.x) * dt * 4.5;
-        npc.velocity.y += (154 - npc.velocity.y) * Math.min(1, dt * 5.2);
+        npc.velocity.x += (desiredX - npc.position.x) * dt * 4.5 * npc.moveScale;
+        npc.velocity.y += (154 * npc.moveScale - npc.velocity.y) * Math.min(1, dt * 5.2);
       } else if (npc.kind === "rival") {
         const inside = npc.position.y + npc.radius < TRAIN_FLOOR;
         if (!inside) {
-          npc.velocity.x += (npc.targetX - npc.position.x) * dt * 3.4;
+          npc.velocity.x += (npc.targetX - npc.position.x) * dt * 3.4 * npc.moveScale;
           const aligned = Math.abs(npc.targetX - npc.position.x) < 58;
-          npc.velocity.y += ((aligned ? -125 : -42) - npc.velocity.y) * Math.min(1, dt * 4);
+          npc.velocity.y += ((aligned ? -125 : -42) * npc.moveScale - npc.velocity.y) * Math.min(1, dt * 4);
         } else {
           npc.velocity.y += (-18 - npc.velocity.y) * Math.min(1, dt * 2);
         }
       }
 
-      npc.position.x += npc.velocity.x * dt;
-      npc.position.y += npc.velocity.y * dt;
+      const sway = Math.sin(this.stageElapsed * 2.7 + npc.id * 1.71) * Math.min(7, 2 + this.stageIndex);
+      this.moveNpc(npc, (npc.velocity.x + sway) * dt, npc.velocity.y * dt);
       const damping = Math.pow(npc.kind === "alighter" || npc.kind === "rival" ? 0.92 : 0.18, dt);
       npc.velocity.x *= damping;
       npc.velocity.y *= damping;
-      npc.position.x = clamp(npc.position.x, 30, VIEW_WIDTH - 30);
-
-      if (npc.kind !== "alighter" && npc.position.y + npc.radius > TRAIN_FLOOR && !this.insideDoorOpening(npc.position.x, npc.radius)) {
-        npc.position.y = TRAIN_FLOOR - npc.radius;
-        npc.velocity.y = Math.min(0, npc.velocity.y);
-      }
       if (npc.kind === "alighter" && npc.position.y > PLATFORM_BOTTOM + 40) npc.active = false;
-      if (npc.kind === "rival") npc.position.y = clamp(npc.position.y, 152, PLATFORM_BOTTOM - npc.radius);
-      else if (npc.kind !== "alighter") npc.position.y = clamp(npc.position.y, 145, TRAIN_FLOOR - npc.radius);
     }
   }
 
@@ -353,8 +351,7 @@ export class Game {
       const normal = distance > 0.01 ? { x: delta.x / distance, y: delta.y / distance } : { x: 0, y: 1 };
       const force = npc.kind === "alighter" ? 1.15 : npc.kind === "rival" ? 0.76 : 0.62;
       this.movePlayer(normal.x * overlap * force, normal.y * overlap * force);
-      npc.position.x -= normal.x * overlap * (1 - force) / npc.resistance;
-      npc.position.y -= normal.y * overlap * (1 - force) / npc.resistance;
+      this.moveNpc(npc, -normal.x * overlap * (1 - force) / npc.resistance, -normal.y * overlap * (1 - force) / npc.resistance);
 
       if (npc.kind === "alighter" && npc.velocity.y > 55) {
         this.player.velocity.x += normal.x * 135;
@@ -391,12 +388,99 @@ export class Game {
         const nx = dx / distance;
         const ny = dy / distance;
         const totalResistance = a.resistance + b.resistance;
-        a.position.x -= nx * overlap * b.resistance / totalResistance;
-        a.position.y -= ny * overlap * b.resistance / totalResistance;
-        b.position.x += nx * overlap * a.resistance / totalResistance;
-        b.position.y += ny * overlap * a.resistance / totalResistance;
+        this.moveNpc(a, -nx * overlap * b.resistance / totalResistance, -ny * overlap * b.resistance / totalResistance);
+        this.moveNpc(b, nx * overlap * a.resistance / totalResistance, ny * overlap * a.resistance / totalResistance);
       }
     }
+  }
+
+  private moveNpc(npc: Npc, dx: number, dy: number): void {
+    const maxY = npc.kind === "alighter" ? PLATFORM_BOTTOM + 70 : PLATFORM_BOTTOM - npc.radius;
+    this.moveActor(npc, dx, dy, 145, maxY);
+  }
+
+  private moveActor(actor: Actor, dx: number, dy: number, minY: number, maxY: number): void {
+    const previousY = actor.position.y;
+    const edge = Math.max(38, actor.radius);
+    const nextX = clamp(actor.position.x + dx, edge, VIEW_WIDTH - edge);
+    let nextY = clamp(actor.position.y + dy, minY, maxY);
+    const previousSide = previousY < TRAIN_FLOOR ? -1 : previousY > TRAIN_FLOOR ? 1 : dy <= 0 ? -1 : 1;
+    const throughOpenDoor = this.insideDoorOpening(nextX, actor.radius);
+
+    if (!throughOpenDoor) {
+      if (previousSide < 0 && nextY + actor.radius > TRAIN_FLOOR) {
+        nextY = TRAIN_FLOOR - actor.radius;
+        actor.velocity.y = Math.min(0, actor.velocity.y);
+      } else if (previousSide > 0 && nextY - actor.radius < TRAIN_FLOOR) {
+        nextY = TRAIN_FLOOR + actor.radius;
+        actor.velocity.y = Math.max(0, actor.velocity.y);
+      }
+    }
+
+    actor.position.x = nextX;
+    actor.position.y = nextY;
+  }
+
+  private propagatePush(source: Npc, direction: Vec2, impulse: number, depth: number, visited: Set<number>): void {
+    if (depth > 4 || impulse < 18) return;
+    const neighbors = this.npcs
+      .filter((npc) => {
+        if (!npc.active || visited.has(npc.id)) return false;
+        const delta = { x: npc.position.x - source.position.x, y: npc.position.y - source.position.y };
+        const distance = length(delta);
+        const forward = delta.x * direction.x + delta.y * direction.y;
+        return forward > 2 && distance < source.radius + npc.radius + 20;
+      })
+      .sort((a, b) => {
+        const distanceA = Math.hypot(a.position.x - source.position.x, a.position.y - source.position.y);
+        const distanceB = Math.hypot(b.position.x - source.position.x, b.position.y - source.position.y);
+        return distanceA - distanceB;
+      })
+      .slice(0, 3);
+
+    for (const npc of neighbors) {
+      visited.add(npc.id);
+      this.lastChainCount += 1;
+      npc.velocity.x += direction.x * impulse / npc.resistance;
+      npc.velocity.y += direction.y * impulse / npc.resistance;
+      npc.squash = Math.max(npc.squash, 0.13);
+      this.moveNpc(npc, direction.x * Math.min(8, impulse * 0.018), direction.y * Math.min(8, impulse * 0.018));
+      this.propagatePush(npc, direction, impulse * 0.5, depth + 1, visited);
+    }
+  }
+
+  private applyCrowdPressure(dt: number): void {
+    let x = 0;
+    let y = 0;
+    let contacts = 0;
+    let weight = 0;
+    for (const npc of this.npcs) {
+      if (!npc.active) continue;
+      const delta = { x: this.player.position.x - npc.position.x, y: this.player.position.y - npc.position.y };
+      const distance = length(delta);
+      const reach = this.player.radius + npc.radius + 34;
+      if (distance >= reach) continue;
+      const normal = distance > 0.01 ? { x: delta.x / distance, y: delta.y / distance } : { x: 0, y: 1 };
+      const localWeight = (reach - distance) / reach;
+      x += normal.x * localWeight;
+      y += normal.y * localWeight;
+      weight += localWeight;
+      contacts += 1;
+    }
+    this.pressureContacts = contacts;
+    if (contacts < 2 || weight < 0.08) return;
+    const direction = normalize({ x, y });
+    const strength = Math.min(25, 7 + weight * 13 + this.stageIndex * 1.2);
+    const sway = Math.sin(this.stageElapsed * 5.4) * Math.min(3.5, contacts * 0.35);
+    this.movePlayer((direction.x * strength + sway) * dt, direction.y * strength * dt);
+  }
+
+  private countWallViolations(): number {
+    const actors: Actor[] = [this.player, ...this.npcs.filter((npc) => npc.active)];
+    return actors.filter((actor) => {
+      const straddlesWall = actor.position.y - actor.radius < TRAIN_FLOOR && actor.position.y + actor.radius > TRAIN_FLOOR;
+      return straddlesWall && !this.insideDoorOpening(actor.position.x, actor.radius);
+    }).length;
   }
 
   private checkCoffee(): void {
