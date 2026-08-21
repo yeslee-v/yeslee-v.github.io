@@ -464,13 +464,13 @@ export class GameScene extends Phaser.Scene {
     this.createOfficeVisuals();
 
     this.walls = this.physics.add.staticGroup();
-    this.addWall(GAME_CONFIG.worldWidth / 2, 112, GAME_CONFIG.worldWidth, 24, COLORS.wall);
-    this.addWall(GAME_CONFIG.worldWidth / 2, 712, GAME_CONFIG.worldWidth, 24, COLORS.wall);
+    this.addWall(GAME_CONFIG.worldWidth / 2, 112, GAME_CONFIG.worldWidth, 24, COLORS.wall, true);
+    this.addWall(GAME_CONFIG.worldWidth / 2, 712, GAME_CONFIG.worldWidth, 24, COLORS.wall, true);
 
-    this.addWall(445, 255, 180, 64, 0x1e293b);
-    this.addWall(730, 555, 210, 58, 0x334155);
-    this.addWall(1015, 380, 118, 148, 0x1e293b);
-    this.addWall(1300, 230, 100, 120, 0x111827);
+    this.addWall(445, 255, 180, 64, 0x1e293b, true);
+    this.addWall(730, 555, 210, 58, 0x334155, true);
+    this.addWall(1015, 380, 118, 148, 0x1e293b, true);
+    this.addWall(1300, 230, 100, 120, 0x111827, true);
 
     this.addWall(2110, 410, 82, 596, 0x991b1b);
     this.addWall(3545, 340, 360, 360, 0x475569);
@@ -497,14 +497,13 @@ export class GameScene extends Phaser.Scene {
         padding: { x: 11, y: 6 },
       })
       .setDepth(10);
-    this.addWorldLabel(82, 664, '출근 시작', 0xe2e8f0, '#0f172ad9').setOrigin(0.5);
   }
 
   private createPlatformScreenDoors(): void {
     const routeBand = this.add.rectangle(710, 151, 1380, 34, 0x111827, 0.96).setDepth(-11);
     routeBand.setStrokeStyle(2, 0x334155, 1);
     this.add
-      .text(36, 139, 'RUSH LINE  ·  한강로  ·  08:58 출근 방면', {
+      .text(36, 139, '한강로  ·  출근 방면', {
         fontFamily: FONT_FAMILY,
         fontSize: '15px',
         fontStyle: 'bold',
@@ -535,14 +534,6 @@ export class GameScene extends Phaser.Scene {
 
     this.add.rectangle(0, 234, 1420, 18, COLORS.platformStripe, 1).setOrigin(0, 0).setDepth(-7);
     this.add.rectangle(0, 252, 1420, 5, 0xb91c1c, 0.9).setOrigin(0, 0).setDepth(-7);
-    this.add
-      .text(1090, 237, '안전선 안쪽으로 이동', {
-        fontFamily: FONT_FAMILY,
-        fontSize: '11px',
-        fontStyle: 'bold',
-        color: '#450a0a',
-      })
-      .setDepth(-5);
   }
 
   private createSubwayFloorPattern(): void {
@@ -575,10 +566,12 @@ export class GameScene extends Phaser.Scene {
   private createSubwayBackgroundCrowd(): void {
     const positions = [
       [95, 300], [132, 305], [170, 292], [205, 304],
+      [242, 316], [278, 298],
       [345, 338], [382, 325], [420, 340],
       [565, 300], [602, 310], [640, 296], [678, 312],
+      [744, 318], [780, 298], [816, 320],
       [835, 596], [872, 605], [910, 590],
-      [1110, 292], [1146, 304], [1182, 290], [1218, 306],
+      [1042, 315], [1110, 292], [1146, 304], [1182, 290], [1218, 306],
     ] as const;
 
     positions.forEach(([x, y], index) => {
@@ -593,23 +586,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createSubwayPropVisuals(): void {
-    const adShadow = this.add.rectangle(450, 262, 190, 72, 0x0f172a, 0.3).setDepth(1);
-    adShadow.setRotation(-0.01);
     this.add
-      .rectangle(445, 252, 168, 50, 0xe0f2fe, 1)
-      .setStrokeStyle(5, 0x1e293b, 1)
+      .rectangle(445, 255, 172, 54, 0x1e293b, 1)
+      .setStrokeStyle(4, 0x475569, 1)
       .setDepth(2);
-    this.add
-      .text(445, 252, '월요일도\n정시 출근', {
-        fontFamily: FONT_FAMILY,
-        fontSize: '16px',
-        fontStyle: 'bold',
-        color: '#0f172a',
-        align: 'center',
-        lineSpacing: 2,
-      })
-      .setOrigin(0.5)
-      .setDepth(3);
 
     this.add.rectangle(730, 550, 198, 45, 0x334155, 1).setStrokeStyle(4, 0x1e293b).setDepth(2);
     for (const x of [650, 690, 730, 770, 810]) {
@@ -629,17 +609,6 @@ export class GameScene extends Phaser.Scene {
         fontSize: '14px',
         fontStyle: 'bold',
         color: '#ffffff',
-        align: 'center',
-      })
-      .setOrigin(0.5)
-      .setDepth(4);
-    this.add.rectangle(1015, 410, 82, 46, 0xf8fafc, 0.92).setDepth(3);
-    this.add
-      .text(1015, 410, '← 1번\n3번 →', {
-        fontFamily: FONT_FAMILY,
-        fontSize: '14px',
-        fontStyle: 'bold',
-        color: '#0f172a',
         align: 'center',
       })
       .setOrigin(0.5)
@@ -675,16 +644,6 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(5);
     this.add.rectangle(1388, 478, 12, 350, 0x10b981, 0.72).setDepth(-3);
-    this.add
-      .text(1345, 430, '출구 →', {
-        fontFamily: FONT_FAMILY,
-        fontSize: '16px',
-        fontStyle: 'bold',
-        color: '#d1fae5',
-        backgroundColor: '#064e3bd9',
-        padding: { x: 7, y: 4 },
-      })
-      .setDepth(5);
   }
 
   private createRoadAndStopVisuals(): void {
@@ -752,11 +711,18 @@ export class GameScene extends Phaser.Scene {
     this.addWorldLabel(4060, 205, '지문 인식 · 접촉 시 출근 성공', 0x111827, '#f8faf0e6').setOrigin(0.5);
   }
 
-  private addWall(x: number, y: number, width: number, height: number, tint: number): void {
+  private addWall(
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    tint: number,
+    hideCollider = false,
+  ): void {
     const wall = this.physics.add.staticImage(x, y, 'pixel');
     wall.setDisplaySize(width, height);
     wall.setTint(tint);
-    wall.setDepth(0);
+    wall.setDepth(0).setAlpha(hideCollider ? 0 : 1);
     wall.refreshBody();
     this.walls.add(wall);
   }
@@ -934,34 +900,34 @@ export class GameScene extends Phaser.Scene {
 
   private createHud(): void {
     const hudBackground = this.add
-      .rectangle(0, 0, GAME_CONFIG.width, 124, COLORS.hud, 0.97)
+      .rectangle(0, 0, GAME_CONFIG.width, 110, COLORS.hud, 0.97)
       .setOrigin(0, 0)
       .setScrollFactor(0)
       .setDepth(500);
     hudBackground.setStrokeStyle(2, COLORS.hudAccent, 0.55);
 
-    this.clockText = this.addFixedText(24, 12, '', 27, '#f8fafc', 'bold');
+    this.clockText = this.addFixedText(24, 8, '', 25, '#f8fafc', 'bold');
     this.objectiveText = this.addFixedText(
       GAME_CONFIG.width / 2,
-      15,
+      11,
       '',
-      23,
+      21,
       '#bae6fd',
       'bold',
     ).setOrigin(0.5, 0);
-    this.mentalText = this.addFixedText(24, 55, '', 21, '#fca5a5', 'bold');
+    this.mentalText = this.addFixedText(24, 45, '', 19, '#fca5a5', 'bold');
 
     const stageXs = [470, 650, 835, 1025];
     const stageLabels = ['만원 지하철', '광역버스', '회사 로비', '지문 인식'];
     this.stageTexts = stageLabels.map((label, index) =>
-      this.addFixedText(stageXs[index], 59, label, 16, '#64748b', 'bold').setOrigin(0.5),
+      this.addFixedText(stageXs[index], 50, label, 15, '#64748b', 'bold').setOrigin(0.5),
     );
     [560, 742, 932].forEach((x) => {
-      this.addFixedText(x, 50, '━━', 18, '#475569', 'bold').setOrigin(0.5);
+      this.addFixedText(x, 43, '━━', 16, '#475569', 'bold').setOrigin(0.5);
     });
 
-    this.coffeeText = this.addFixedText(24, 94, '카페인 부스트 없음', 18, '#fde68a');
-    this.addFixedText(1165, 95, 'WASD 이동', 16, '#cbd5e1');
+    this.coffeeText = this.addFixedText(24, 81, '카페인 부스트 없음', 16, '#fde68a');
+    this.addFixedText(1175, 83, 'WASD 이동', 14, '#cbd5e1');
 
     this.playerDialogueText = this.addFixedText(
       GAME_CONFIG.width / 2,
