@@ -54,6 +54,8 @@ type BusPhase = 'moving' | 'cooldown';
 export class GameScene extends Phaser.Scene {
   private state = GameState.Playing;
   private stage = GameStage.Subway;
+  private gameStarted = false;
+  private autoStartOnCreate = false;
   private player!: Phaser.Physics.Arcade.Sprite;
   private playerIndicator!: Phaser.GameObjects.Triangle;
   private walls!: Phaser.Physics.Arcade.StaticGroup;
@@ -111,12 +113,20 @@ export class GameScene extends Phaser.Scene {
   private noticeUntilMs = 0;
   private bossPanel!: Phaser.GameObjects.Container;
   private bossDialogueText!: Phaser.GameObjects.Text;
+  private titleOverlay!: Phaser.GameObjects.Container;
+  private titleStartButton!: Phaser.GameObjects.Rectangle;
   private resultOverlay!: Phaser.GameObjects.Container;
+  private resultPanel!: Phaser.GameObjects.Rectangle;
   private resultTitleText!: Phaser.GameObjects.Text;
+  private resultTimeText!: Phaser.GameObjects.Text;
   private resultBodyText!: Phaser.GameObjects.Text;
 
   public constructor() {
     super('GameScene');
+  }
+
+  public init(data: { autoStart?: boolean } = {}): void {
+    this.autoStartOnCreate = Boolean(data.autoStart);
   }
 
   public create(): void {
@@ -129,19 +139,27 @@ export class GameScene extends Phaser.Scene {
     this.createBus();
     this.createItemsAndGoal();
     this.createHud();
+    this.titleOverlay = this.createTitleOverlay();
     this.configureInputAndCamera();
     this.installTestApi();
 
     this.physics.add.collider(this.player, this.walls);
-    this.runStartedAtMs = performance.now();
     this.updateStageAndObjective(true);
     this.updateHud(performance.now(), true);
+
+    if (this.autoStartOnCreate) {
+      this.startGame(false);
+    }
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.handleShutdown, this);
   }
 
   public update(_time: number, delta: number): void {
     const nowMs = performance.now();
+
+    if (!this.gameStarted) {
+      return;
+    }
 
     if (isTerminalState(this.state)) {
       return;
@@ -180,6 +198,7 @@ export class GameScene extends Phaser.Scene {
   private resetRuntimeValues(): void {
     this.state = GameState.Playing;
     this.stage = GameStage.Subway;
+    this.gameStarted = false;
     this.crowd = [];
     this.queueNpcs = [];
     this.currentSpeed = GAME_CONFIG.playerBaseSpeed;
@@ -664,13 +683,13 @@ export class GameScene extends Phaser.Scene {
     ).setOrigin(0.5, 0);
     this.mentalText = this.addFixedText(24, 55, '', 21, '#fca5a5', 'bold');
 
-    const stageXs = [500, 665, 820, 1000];
-    const stageLabels = ['지하철', '버스', '로비', '지문 인식'];
+    const stageXs = [470, 650, 835, 1025];
+    const stageLabels = ['만원 지하철', '광역버스', '회사 로비', '지문 인식'];
     this.stageTexts = stageLabels.map((label, index) =>
-      this.addFixedText(stageXs[index], 59, label, 18, '#64748b', 'bold').setOrigin(0.5),
+      this.addFixedText(stageXs[index], 59, label, 16, '#64748b', 'bold').setOrigin(0.5),
     );
-    [582, 742, 910].forEach((x) => {
-      this.addFixedText(x, 50, '━━━', 18, '#475569', 'bold').setOrigin(0.5);
+    [560, 742, 932].forEach((x) => {
+      this.addFixedText(x, 50, '━━', 18, '#475569', 'bold').setOrigin(0.5);
     });
 
     this.coffeeText = this.addFixedText(24, 94, '카페인 부스트 없음', 18, '#fde68a');
@@ -705,6 +724,107 @@ export class GameScene extends Phaser.Scene {
 
     this.bossPanel = this.createBossPanel();
     this.resultOverlay = this.createResultOverlay();
+  }
+
+  private createTitleOverlay(): Phaser.GameObjects.Container {
+    const backdrop = this.add
+      .rectangle(0, 0, GAME_CONFIG.width, GAME_CONFIG.height, 0x07111f, 1)
+      .setOrigin(0, 0);
+    const glow = this.add.circle(GAME_CONFIG.width / 2, 250, 330, 0x0ea5e9, 0.08);
+    const topRule = this.add.rectangle(GAME_CONFIG.width / 2, 84, 880, 4, 0x38bdf8, 0.8);
+    const road = this.add.rectangle(GAME_CONFIG.width / 2, 655, GAME_CONFIG.width, 96, 0x1f2937);
+    const roadLineLeft = this.add.rectangle(345, 655, 210, 8, 0xf8fafc, 0.6);
+    const roadLineRight = this.add.rectangle(935, 655, 210, 8, 0xf8fafc, 0.6);
+    const eyebrow = this.add
+      .text(GAME_CONFIG.width / 2, 112, '08:58:30 · 출근 타임어택', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '18px',
+        fontStyle: 'bold',
+        color: '#7dd3fc',
+        letterSpacing: 2,
+      })
+      .setOrigin(0.5);
+    const title = this.add
+      .text(GAME_CONFIG.width / 2, 205, '출근길 RUSH', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '82px',
+        fontStyle: 'bold',
+        color: '#f8fafc',
+        stroke: '#0c4a6e',
+        strokeThickness: 8,
+      })
+      .setOrigin(0.5);
+    const subtitle = this.add
+      .text(GAME_CONFIG.width / 2, 290, '9시 전에 회사에 도착하세요.', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '30px',
+        fontStyle: 'bold',
+        color: '#facc15',
+      })
+      .setOrigin(0.5);
+    const description = this.add
+      .text(
+        GAME_CONFIG.width / 2,
+        365,
+        '지하철을 뚫고 · 광역버스를 잡아타고\n지문 인식기에 손을 대라.',
+        {
+          fontFamily: FONT_FAMILY,
+          fontSize: '23px',
+          color: '#cbd5e1',
+          align: 'center',
+          lineSpacing: 10,
+        },
+      )
+      .setOrigin(0.5);
+
+    this.titleStartButton = this.add
+      .rectangle(GAME_CONFIG.width / 2, 505, 330, 78, 0x0284c7, 1)
+      .setStrokeStyle(4, 0x7dd3fc, 1)
+      .setInteractive({ useHandCursor: true });
+    const startText = this.add
+      .text(GAME_CONFIG.width / 2, 505, '출근 시작', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '31px',
+        fontStyle: 'bold',
+        color: '#ffffff',
+      })
+      .setOrigin(0.5);
+    const controls = this.add
+      .text(GAME_CONFIG.width / 2, 575, 'WASD 이동  ·  ENTER 시작', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '16px',
+        color: '#94a3b8',
+      })
+      .setOrigin(0.5);
+    const playerIcon = this.add.image(260, 565, 'player').setScale(1.15);
+    const busIcon = this.add.image(1040, 575, 'bus-red').setScale(0.58);
+
+    this.titleStartButton
+      .on('pointerover', () => this.titleStartButton.setFillStyle(0x0369a1, 1))
+      .on('pointerout', () => this.titleStartButton.setFillStyle(0x0284c7, 1))
+      .on('pointerdown', () => this.startGame(true));
+
+    return this.add
+      .container(0, 0, [
+        backdrop,
+        glow,
+        topRule,
+        road,
+        roadLineLeft,
+        roadLineRight,
+        eyebrow,
+        title,
+        subtitle,
+        description,
+        this.titleStartButton,
+        startText,
+        controls,
+        playerIcon,
+        busIcon,
+      ])
+      .setScrollFactor(0)
+      .setDepth(950)
+      .setVisible(true);
   }
 
   private addFixedText(
@@ -772,15 +892,33 @@ export class GameScene extends Phaser.Scene {
 
   private createResultOverlay(): Phaser.GameObjects.Container {
     const backdrop = this.add
-      .rectangle(0, 0, GAME_CONFIG.width, GAME_CONFIG.height, 0x020617, 0.86)
+      .rectangle(0, 0, GAME_CONFIG.width, GAME_CONFIG.height, 0x020617, 0.91)
       .setOrigin(0, 0);
-    const panel = this.add
-      .rectangle(GAME_CONFIG.width / 2, GAME_CONFIG.height / 2, 760, 390, 0x0f172a, 0.98)
+    this.resultPanel = this.add
+      .rectangle(GAME_CONFIG.width / 2, GAME_CONFIG.height / 2, 800, 470, 0x0f172a, 0.99)
       .setStrokeStyle(5, 0x38bdf8, 1);
-    this.resultTitleText = this.add
-      .text(GAME_CONFIG.width / 2, 280, '', {
+    const resultLabel = this.add
+      .text(GAME_CONFIG.width / 2, 154, '출근길 RUSH · 출근 결과', {
         fontFamily: FONT_FAMILY,
-        fontSize: '48px',
+        fontSize: '18px',
+        fontStyle: 'bold',
+        color: '#7dd3fc',
+      })
+      .setOrigin(0.5);
+    const topRule = this.add.rectangle(GAME_CONFIG.width / 2, 187, 650, 3, 0x334155, 1);
+    this.resultTitleText = this.add
+      .text(GAME_CONFIG.width / 2, 245, '', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '54px',
+        fontStyle: 'bold',
+        color: '#f8fafc',
+        align: 'center',
+      })
+      .setOrigin(0.5);
+    this.resultTimeText = this.add
+      .text(GAME_CONFIG.width / 2, 318, '', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '30px',
         fontStyle: 'bold',
         color: '#f8fafc',
         align: 'center',
@@ -789,23 +927,42 @@ export class GameScene extends Phaser.Scene {
     this.resultBodyText = this.add
       .text(GAME_CONFIG.width / 2, 385, '', {
         fontFamily: FONT_FAMILY,
-        fontSize: '30px',
+        fontSize: '26px',
         color: '#dbeafe',
         align: 'center',
-        lineSpacing: 12,
+        lineSpacing: 10,
       })
       .setOrigin(0.5);
+    const restartButton = this.add
+      .rectangle(GAME_CONFIG.width / 2, 500, 350, 70, 0x1e3a5f, 1)
+      .setStrokeStyle(3, 0x7dd3fc, 1)
+      .setInteractive({ useHandCursor: true });
     const restartText = this.add
-      .text(GAME_CONFIG.width / 2, 512, 'R 키로 다시 출근하기', {
+      .text(GAME_CONFIG.width / 2, 500, 'R  다시 출근하기', {
         fontFamily: FONT_FAMILY,
         fontSize: '24px',
         fontStyle: 'bold',
-        color: '#fde68a',
+        color: '#ffffff',
       })
       .setOrigin(0.5);
 
+    restartButton
+      .on('pointerover', () => restartButton.setFillStyle(0x0c4a6e, 1))
+      .on('pointerout', () => restartButton.setFillStyle(0x1e3a5f, 1))
+      .on('pointerdown', () => this.restartPlayingScene());
+
     return this.add
-      .container(0, 0, [backdrop, panel, this.resultTitleText, this.resultBodyText, restartText])
+      .container(0, 0, [
+        backdrop,
+        this.resultPanel,
+        resultLabel,
+        topRule,
+        this.resultTitleText,
+        this.resultTimeText,
+        this.resultBodyText,
+        restartButton,
+        restartText,
+      ])
       .setScrollFactor(0)
       .setDepth(1000)
       .setVisible(false);
@@ -825,10 +982,44 @@ export class GameScene extends Phaser.Scene {
     };
 
     keyboard.on('keydown-R', this.handleRestartKey, this);
+    keyboard.on('keydown-ENTER', this.handleStartKey, this);
+    keyboard.on('keydown-SPACE', this.handleStartKey, this);
 
     this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
     this.cameras.main.setRoundPixels(true);
     this.cameras.main.scrollX = 0;
+  }
+
+  private startGame(animate: boolean): void {
+    if (this.gameStarted) {
+      return;
+    }
+
+    this.gameStarted = true;
+    this.runStartedAtMs = performance.now();
+    this.titleStartButton.disableInteractive();
+    this.updateStageAndObjective(true);
+    this.updateHud(this.runStartedAtMs, true);
+
+    if (!animate) {
+      this.titleOverlay.setAlpha(0).setVisible(false);
+      return;
+    }
+
+    this.tweens.killTweensOf(this.titleOverlay);
+    this.tweens.add({
+      targets: this.titleOverlay,
+      alpha: 0,
+      duration: 320,
+      ease: 'Sine.Out',
+      onComplete: () => this.titleOverlay.setVisible(false),
+    });
+  }
+
+  private handleStartKey(): void {
+    if (!this.gameStarted) {
+      this.startGame(true);
+    }
   }
 
   private updatePlayerMovement(nowMs: number): void {
@@ -1229,7 +1420,7 @@ export class GameScene extends Phaser.Scene {
       GameStage.Lobby,
       GameStage.Fingerprint,
     ];
-    const labels = ['지하철', '버스', '로비', '지문 인식'];
+    const labels = ['만원 지하철', '광역버스', '회사 로비', '지문 인식'];
     const currentIndex = orderedStages.indexOf(this.stage);
 
     this.stageTexts.forEach((text, index) => {
@@ -1285,6 +1476,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private getElapsedSeconds(nowMs: number): number {
+    if (!this.gameStarted) {
+      return 0;
+    }
     if (isTerminalState(this.state)) {
       return this.frozenElapsedSeconds;
     }
@@ -1318,30 +1512,32 @@ export class GameScene extends Phaser.Scene {
     if (nextState === GameState.Late) {
       this.frozenElapsedSeconds = GAME_CONFIG.timeLimitSeconds;
       this.showResult(
-        '09:00:00 지각',
+        '지각!',
         '시말서 작성이 확정되었습니다.',
         '#ef4444',
+        '09:00:00',
       );
     } else if (nextState === GameState.Cleared) {
       this.showResult(
-        `${this.formatClock(this.frozenElapsedSeconds)} 출근 성공`,
-        '오늘도 퇴사는 미뤄졌습니다.',
+        '출근 성공!',
+        '오늘도 무사히 살아남았습니다.',
         '#22c55e',
+        this.formatClock(this.frozenElapsedSeconds),
       );
     } else if (nextState === GameState.Resigned) {
       this.frozenElapsedSeconds = this.getElapsedSecondsBeforeTerminal();
       this.showResult(
-        '사직서 제출 완료',
-        '축하합니다.\n모든 출근 장애물에 영구 면역이 되었습니다.',
+        '사직 완료',
+        '출근하지 않아도 됩니다.',
         '#f59e0b',
       );
     } else if (nextState === GameState.MentalBreak) {
       this.frozenElapsedSeconds = this.getElapsedSecondsBeforeTerminal();
-      this.showResult('멘탈이 먼저 퇴근했습니다.', '출근 실패', '#a855f7');
+      this.showResult('멘탈 퇴근', '정신력이 먼저 퇴근했습니다.', '#a855f7');
     } else if (nextState === GameState.WrongBus) {
       this.showResult(
-        '경로를 이탈했습니다.',
-        '이 버스는 회사로 가지 않습니다.\n\n출근 실패',
+        '경로를 이탈했습니다',
+        '이 버스는 회사로 가지 않습니다.\n출근 실패',
         '#60a5fa',
       );
     }
@@ -1358,8 +1554,16 @@ export class GameScene extends Phaser.Scene {
     return Math.max(0, (performance.now() - this.runStartedAtMs) / 1000);
   }
 
-  private showResult(title: string, body: string, accentColor: string): void {
+  private showResult(
+    title: string,
+    body: string,
+    accentColor: string,
+    timeText = '',
+  ): void {
+    const accent = Phaser.Display.Color.HexStringToColor(accentColor).color;
+    this.resultPanel.setStrokeStyle(5, accent, 1);
     this.resultTitleText.setText(title).setColor(accentColor);
+    this.resultTimeText.setText(timeText).setVisible(timeText.length > 0);
     this.resultBodyText.setText(body);
     this.resultOverlay.setVisible(true);
   }
@@ -1367,6 +1571,7 @@ export class GameScene extends Phaser.Scene {
   private installTestApi(): void {
     const api: CommuteRushTestApi = {
       snapshot: () => this.createSnapshot(),
+      startGame: () => this.startGame(false),
       teleport: (x, y) => this.teleportPlayer(x, y),
       setElapsedSeconds: (seconds) => {
         this.runStartedAtMs = performance.now() - Math.max(0, seconds) * 1000;
@@ -1412,7 +1617,7 @@ export class GameScene extends Phaser.Scene {
         this.hasRiddenBus = true;
         this.teleportPlayer(SCANNER_X, SCANNER_Y);
       },
-      restartScene: () => this.scene.restart(),
+      restartScene: () => this.restartPlayingScene(),
     };
 
     window.__COMMUTE_RUSH_TEST__ = api;
@@ -1428,11 +1633,16 @@ export class GameScene extends Phaser.Scene {
     return {
       state: this.state,
       stage: this.stage,
+      gameStarted: this.gameStarted,
+      titleVisible: this.titleOverlay.visible,
       elapsedSeconds,
       clockText: this.formatClock(elapsedSeconds),
       remainingTimeText: this.formatRemainingTime(
         Math.max(0, Math.ceil(GAME_CONFIG.timeLimitSeconds - elapsedSeconds)),
       ),
+      countdownUrgent: GAME_CONFIG.timeLimitSeconds - elapsedSeconds <= 10,
+      countdownColor:
+        typeof this.clockText.style.color === 'string' ? this.clockText.style.color : '',
       mental: this.mental,
       currentSpeed: this.currentSpeed,
       coffeeRemainingSeconds: Math.max(0, this.coffeeUntilMs - nowMs) / 1000,
@@ -1451,6 +1661,9 @@ export class GameScene extends Phaser.Scene {
       resignationVisible: this.resignation.visible,
       hasRiddenBus: this.hasRiddenBus,
       resultVisible: this.resultOverlay.visible,
+      resultTitle: this.resultTitleText.text,
+      resultTime: this.resultTimeText.text,
+      resultBody: this.resultBodyText.text,
       dialogueVisible: this.bossPanel.visible,
       dialogueText: this.bossDialogueText.text,
       playerDialogueVisible: this.playerDialogueText.visible,
@@ -1494,12 +1707,18 @@ export class GameScene extends Phaser.Scene {
 
   private handleRestartKey(): void {
     if (isTerminalState(this.state)) {
-      this.scene.restart();
+      this.restartPlayingScene();
     }
+  }
+
+  private restartPlayingScene(): void {
+    this.scene.restart({ autoStart: true });
   }
 
   private handleShutdown(): void {
     this.input.keyboard?.off('keydown-R', this.handleRestartKey, this);
+    this.input.keyboard?.off('keydown-ENTER', this.handleStartKey, this);
+    this.input.keyboard?.off('keydown-SPACE', this.handleStartKey, this);
 
     if (window.__COMMUTE_RUSH_TEST__) {
       delete window.__COMMUTE_RUSH_TEST__;

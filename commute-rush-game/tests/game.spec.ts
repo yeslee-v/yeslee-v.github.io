@@ -2,10 +2,14 @@ import { expect, test, type Page } from '@playwright/test';
 
 type Snapshot = ReturnType<NonNullable<Window['__COMMUTE_RUSH_TEST__']>['snapshot']>;
 
-async function waitForGame(page: Page): Promise<void> {
+async function waitForGame(page: Page, autoStart = true): Promise<void> {
   await page.goto('/');
   await page.waitForFunction(() => Boolean(window.__COMMUTE_RUSH_TEST__));
   await expect(page.locator('canvas')).toBeVisible();
+  if (autoStart) {
+    await page.evaluate(() => window.__COMMUTE_RUSH_TEST__?.startGame());
+    await page.waitForFunction(() => window.__COMMUTE_RUSH_TEST__?.snapshot().gameStarted);
+  }
 }
 
 async function snapshot(page: Page): Promise<Snapshot> {
@@ -56,6 +60,36 @@ function collectRuntimeErrors(page: Page): string[] {
   return runtimeErrors;
 }
 
+test('첫 실행: 타이틀·게임 목적·CTA 표시 후 클릭으로 출근 시작', async ({ page }) => {
+  const runtimeErrors = collectRuntimeErrors(page);
+  await waitForGame(page, false);
+
+  const beforeStart = await snapshot(page);
+  expect(beforeStart.gameStarted).toBe(false);
+  expect(beforeStart.titleVisible).toBe(true);
+  expect(beforeStart.elapsedSeconds).toBe(0);
+  expect(beforeStart.objective).toBe('목표: 지하철 출구로 이동하세요.');
+
+  await page.waitForTimeout(250);
+  expect((await snapshot(page)).elapsedSeconds).toBe(0);
+
+  const canvas = page.locator('canvas');
+  const box = await canvas.boundingBox();
+  if (!box) {
+    throw new Error('Game canvas has no visible bounds.');
+  }
+  await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * (505 / 720));
+  await page.waitForFunction(() => {
+    const state = window.__COMMUTE_RUSH_TEST__?.snapshot();
+    return Boolean(state?.gameStarted && !state.titleVisible);
+  });
+
+  const started = await snapshot(page);
+  expect(started.stage).toBe('Subway');
+  expect(started.remainingTimeText).toBe('01:30');
+  await expectNoRuntimeErrors(page, runtimeErrors);
+});
+
 test('성공 루프: 이동 → 버스 탑승/하차 → 지문 인식 → R 재시작', async ({ page }) => {
   const runtimeErrors = collectRuntimeErrors(page);
   await waitForGame(page);
@@ -102,6 +136,9 @@ test('성공 루프: 이동 → 버스 탑승/하차 → 지문 인식 → R 재
   const cleared = await snapshot(page);
   expect(cleared.resultVisible).toBe(true);
   expect(cleared.clockText).not.toBe('09:00:00');
+  expect(cleared.resultTitle).toBe('출근 성공!');
+  expect(cleared.resultTime).toBe(cleared.clockText);
+  expect(cleared.resultBody).toContain('무사히 살아남았습니다');
 
   const frozenX = cleared.playerX;
   await page.keyboard.down('KeyD');
@@ -123,6 +160,8 @@ test('성공 루프: 이동 → 버스 탑승/하차 → 지문 인식 → R 재
   expect(restarted.sceneBusCount).toBe(1);
   expect(restarted.coffeeLabelVisible).toBe(true);
   expect(restarted.stage).toBe('Subway');
+  expect(restarted.gameStarted).toBe(true);
+  expect(restarted.titleVisible).toBe(false);
 
   await expectNoRuntimeErrors(page, runtimeErrors);
 });
@@ -138,6 +177,9 @@ test('지각: 실제 경과시간 기준 09:00:00 즉시 종료 및 이동 중�
   expect(late.clockText).toBe('09:00:00');
   expect(late.remainingTimeText).toBe('00:00');
   expect(late.resultVisible).toBe(true);
+  expect(late.resultTitle).toBe('지각!');
+  expect(late.resultTime).toBe('09:00:00');
+  expect(late.resultBody).toContain('시말서');
 
   const frozenX = late.playerX;
   await page.keyboard.down('KeyD');
@@ -147,6 +189,22 @@ test('지각: 실제 경과시간 기준 09:00:00 즉시 종료 및 이동 중�
 
   await page.keyboard.press('KeyR');
   await page.waitForFunction(() => window.__COMMUTE_RUSH_TEST__?.snapshot().state === 'Playing');
+  await expectNoRuntimeErrors(page, runtimeErrors);
+});
+
+test('긴급 HUD: 10초 이하에서 빨간색 카운트다운으로 전환', async ({ page }) => {
+  const runtimeErrors = collectRuntimeErrors(page);
+  await waitForGame(page);
+
+  await page.evaluate(() => window.__COMMUTE_RUSH_TEST__?.setElapsedSeconds(80.05));
+  await page.waitForFunction(() => window.__COMMUTE_RUSH_TEST__?.snapshot().remainingTimeText === '00:10');
+  const urgent = await snapshot(page);
+  expect(urgent.countdownUrgent).toBe(true);
+  expect(urgent.countdownColor).toBe('#f87171');
+
+  await page.evaluate(() => window.__COMMUTE_RUSH_TEST__?.setElapsedSeconds(85.05));
+  await page.waitForFunction(() => window.__COMMUTE_RUSH_TEST__?.snapshot().remainingTimeText === '00:05');
+  expect((await snapshot(page)).countdownColor).toBe('#f87171');
   await expectNoRuntimeErrors(page, runtimeErrors);
 });
 
@@ -175,6 +233,8 @@ test('정신력: 800ms 재피격 방지, 단일 대사, 0에서 MentalBreak', as
 
   expect(current.state).toBe('MentalBreak');
   expect(current.resultVisible).toBe(true);
+  expect(current.resultTitle).toBe('멘탈 퇴근');
+  expect(current.resultBody).toContain('정신력이 먼저 퇴근했습니다');
 
   await page.keyboard.press('KeyR');
   await page.waitForFunction(() => window.__COMMUTE_RUSH_TEST__?.snapshot().state === 'Playing');
@@ -260,6 +320,8 @@ test('오답 버스: 일반버스 승차 위치를 선택한 경우에만 WrongB
   const wrongBus = await snapshot(page);
   expect(wrongBus.resultVisible).toBe(true);
   expect(wrongBus.stage).toBe('Bus');
+  expect(wrongBus.resultTitle).toBe('경로를 이탈했습니다');
+  expect(wrongBus.resultBody).toContain('회사로 가지 않습니다');
 
   const frozenSeconds = wrongBus.elapsedSeconds;
   await page.waitForTimeout(250);
@@ -301,6 +363,8 @@ test('사직 및 3회 반복 재시작: 오브젝트·입력·속도 중복 없�
     await page.waitForFunction(() => window.__COMMUTE_RUSH_TEST__?.snapshot().state === 'Resigned');
     const resigned = await snapshot(page);
     expect(resigned.resultVisible).toBe(true);
+    expect(resigned.resultTitle).toBe('사직 완료');
+    expect(resigned.resultBody).toContain('출근하지 않아도 됩니다');
 
     const frozenX = resigned.playerX;
     await page.keyboard.down('KeyD');

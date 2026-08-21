@@ -32,9 +32,13 @@ export interface CrowdActor {
 export interface GameSnapshot {
   state: GameState;
   stage: GameStage;
+  gameStarted: boolean;
+  titleVisible: boolean;
   elapsedSeconds: number;
   clockText: string;
   remainingTimeText: string;
+  countdownUrgent: boolean;
+  countdownColor: string;
   mental: number;
   currentSpeed: number;
   coffeeRemainingSeconds: number;
@@ -53,6 +57,9 @@ export interface GameSnapshot {
   resignationVisible: boolean;
   hasRiddenBus: boolean;
   resultVisible: boolean;
+  resultTitle: string;
+  resultTime: string;
+  resultBody: string;
   dialogueVisible: boolean;
   dialogueText: string;
   playerDialogueVisible: boolean;
@@ -63,6 +70,7 @@ export interface GameSnapshot {
 
 export interface CommuteRushTestApi {
   snapshot(): GameSnapshot;
+  startGame(): void;
   teleport(x: number, y: number): void;
   setElapsedSeconds(seconds: number): void;
   summonBusAtStop(kind?: BusKind): void;
