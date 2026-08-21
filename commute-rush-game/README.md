@@ -77,6 +77,7 @@ tests/
 index.html
 vite.config.ts
 playwright.config.ts
+VISUAL_STYLE.md          스테이지 확장용 인게임 색상·레이어·오브젝트 규칙
 ```
 
 ## 밸런스 수정 위치

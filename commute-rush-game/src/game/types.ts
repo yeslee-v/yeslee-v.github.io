@@ -50,6 +50,8 @@ export interface GameSnapshot {
   busKind: BusKind;
   crowdCount: number;
   sceneCrowdCount: number;
+  backgroundCrowdCount: number;
+  subwayVillainVisible: boolean;
   sceneBusCount: number;
   objective: string;
   coffeeVisible: boolean;

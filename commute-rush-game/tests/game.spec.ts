@@ -69,11 +69,27 @@ test('첫 실행: 타이틀·게임 목적·CTA 표시 후 클릭으로 출근 �
   expect(beforeStart.titleVisible).toBe(true);
   expect(beforeStart.elapsedSeconds).toBe(0);
   expect(beforeStart.objective).toBe('목표: 지하철 출구로 이동하세요.');
+  expect(beforeStart.backgroundCrowdCount).toBe(18);
+  expect(beforeStart.subwayVillainVisible).toBe(true);
 
   await page.waitForTimeout(250);
   expect((await snapshot(page)).elapsedSeconds).toBe(0);
 
   const canvas = page.locator('canvas');
+  for (const viewport of [
+    { width: 1366, height: 768 },
+    { width: 1664, height: 936 },
+    { width: 1920, height: 1080 },
+  ]) {
+    await page.setViewportSize(viewport);
+    const responsiveBox = await canvas.boundingBox();
+    expect(responsiveBox).not.toBeNull();
+    expect(responsiveBox?.x ?? -1).toBeGreaterThanOrEqual(0);
+    expect(responsiveBox?.y ?? -1).toBeGreaterThanOrEqual(0);
+    expect((responsiveBox?.x ?? 0) + (responsiveBox?.width ?? 0)).toBeLessThanOrEqual(viewport.width);
+    expect((responsiveBox?.y ?? 0) + (responsiveBox?.height ?? 0)).toBeLessThanOrEqual(viewport.height);
+  }
+
   const box = await canvas.boundingBox();
   if (!box) {
     throw new Error('Game canvas has no visible bounds.');
@@ -157,6 +173,8 @@ test('성공 루프: 이동 → 버스 탑승/하차 → 지문 인식 → R 재
   expect(restarted.coffeeVisible).toBe(true);
   expect(restarted.resignationVisible).toBe(true);
   expect(restarted.sceneCrowdCount).toBe(10);
+  expect(restarted.backgroundCrowdCount).toBe(18);
+  expect(restarted.subwayVillainVisible).toBe(true);
   expect(restarted.sceneBusCount).toBe(1);
   expect(restarted.coffeeLabelVisible).toBe(true);
   expect(restarted.stage).toBe('Subway');
@@ -379,6 +397,8 @@ test('사직 및 3회 반복 재시작: 오브젝트·입력·속도 중복 없�
     });
     const restarted = await snapshot(page);
     expect(restarted.sceneCrowdCount).toBe(10);
+    expect(restarted.backgroundCrowdCount).toBe(18);
+    expect(restarted.subwayVillainVisible).toBe(true);
     expect(restarted.sceneBusCount).toBe(1);
     expect(restarted.currentSpeed).toBe(230);
     expect(restarted.coffeeVisible).toBe(true);

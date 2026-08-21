@@ -67,6 +67,8 @@ export class GameScene extends Phaser.Scene {
   private scanner!: Phaser.GameObjects.Sprite;
   private crowd: CrowdActor[] = [];
   private queueNpcs: Phaser.GameObjects.Sprite[] = [];
+  private subwayVillainActor?: CrowdActor;
+  private subwayVillainBadge?: Phaser.GameObjects.Container;
 
   private keys!: {
     up: Phaser.Input.Keyboard.Key;
@@ -201,6 +203,8 @@ export class GameScene extends Phaser.Scene {
     this.gameStarted = false;
     this.crowd = [];
     this.queueNpcs = [];
+    this.subwayVillainActor = undefined;
+    this.subwayVillainBadge = undefined;
     this.currentSpeed = GAME_CONFIG.playerBaseSpeed;
     this.mental = GAME_CONFIG.maxMental;
     this.hasRiddenBus = false;
@@ -233,20 +237,21 @@ export class GameScene extends Phaser.Scene {
     this.createPersonTexture('player', 0x1e3a5f, 0xf8fafc, true);
 
     const crowdSuitColors = [
-      0x7c3aed,
-      0xbe123c,
-      0x0369a1,
-      0x4d7c0f,
-      0x9a3412,
-      0x4338ca,
+      0x334155,
+      0x1e3a5f,
+      0x475569,
       0x0f766e,
-      0x6b7280,
-      0xa21caf,
-      0x92400e,
+      0x7c2d12,
+      0x4338ca,
+      0x155e75,
+      0x4b5563,
+      0x6b21a8,
+      0x78350f,
     ];
     crowdSuitColors.forEach((color, index) => {
       this.createPersonTexture(`crowd-${index}`, color, 0xf2d3b1, false, index % 3);
     });
+    this.createPersonTexture('subway-villain', 0x991b1b, 0xe9b891, false, 0, true);
 
     this.createBusTexture('bus-red', 0xdc2626, 0xf87171);
     this.createBusTexture('bus-blue', 0x2563eb, 0x60a5fa);
@@ -273,6 +278,7 @@ export class GameScene extends Phaser.Scene {
     skinColor: number,
     isPlayer: boolean,
     sizeVariant = 0,
+    isVillain = false,
   ): void {
     if (this.textures.exists(key)) {
       return;
@@ -299,9 +305,39 @@ export class GameScene extends Phaser.Scene {
     graphics.fillRect(8, height - 10, 10, 8);
     graphics.fillRect(width - 18, height - 10, 10, 8);
 
+    if (!isPlayer && !isVillain && sizeVariant === 0) {
+      graphics.fillStyle(0x0f172a, 1);
+      graphics.fillRoundedRect(width - 13, 30, 7, 12, 2);
+      graphics.fillStyle(0x38bdf8, 1);
+      graphics.fillRect(width - 12, 32, 5, 7);
+    } else if (!isPlayer && !isVillain && sizeVariant === 1) {
+      graphics.lineStyle(2, 0x78350f, 1);
+      graphics.lineBetween(9, 25, width - 9, height - 15);
+      graphics.fillStyle(0x92400e, 1);
+      graphics.fillRoundedRect(width - 18, height - 27, 13, 16, 2);
+    } else if (!isPlayer && !isVillain && sizeVariant === 2) {
+      graphics.fillStyle(0xe0f2fe, 1);
+      graphics.fillRoundedRect(width - 14, 30, 8, 13, 2);
+      graphics.fillStyle(0x7c2d12, 1);
+      graphics.fillRect(width - 13, 35, 6, 7);
+    }
+
     if (isPlayer) {
       graphics.lineStyle(2, 0xfacc15, 1);
       graphics.strokeRoundedRect(4, 2, width - 8, height - 4, 7);
+      graphics.fillStyle(0x38bdf8, 1);
+      graphics.fillRoundedRect(4, 28, 7, 18, 2);
+    }
+
+    if (isVillain) {
+      graphics.lineStyle(3, 0xf97316, 1);
+      graphics.strokeRoundedRect(3, 2, width - 6, height - 4, 7);
+      graphics.lineStyle(2, 0x450a0a, 1);
+      graphics.lineBetween(centerX - 9, 11, centerX - 2, 14);
+      graphics.lineBetween(centerX + 2, 14, centerX + 9, 11);
+      graphics.fillStyle(0xfacc15, 1);
+      graphics.fillRect(width - 9, 4, 3, 9);
+      graphics.fillCircle(width - 7.5, 16, 2);
     }
 
     graphics.generateTexture(key, width, height);
@@ -341,16 +377,26 @@ export class GameScene extends Phaser.Scene {
     }
 
     const graphics = this.add.graphics({ x: 0, y: 0 });
-    graphics.fillStyle(0x0f172a, 0.2);
-    graphics.fillEllipse(24, 50, 38, 8);
+    graphics.fillStyle(0xfacc15, 0.22);
+    graphics.fillCircle(24, 28, 24);
+    graphics.fillStyle(0x0f172a, 0.28);
+    graphics.fillEllipse(24, 51, 40, 8);
     graphics.fillStyle(0xe0f2fe, 1);
     graphics.fillRoundedRect(8, 8, 32, 40, 5);
+    graphics.fillStyle(0xbae6fd, 1);
+    graphics.fillCircle(15, 15, 3);
+    graphics.fillCircle(23, 13, 3);
+    graphics.fillCircle(31, 16, 3);
     graphics.fillStyle(0x7c2d12, 1);
-    graphics.fillRect(11, 17, 26, 27);
+    graphics.fillRect(11, 20, 26, 24);
     graphics.fillStyle(0xf8fafc, 1);
     graphics.fillRect(5, 4, 38, 8);
     graphics.fillStyle(0x111827, 1);
     graphics.fillRect(29, 0, 4, 18);
+    graphics.fillStyle(0xfacc15, 1);
+    graphics.fillCircle(4, 18, 2);
+    graphics.fillCircle(44, 28, 2);
+    graphics.fillRect(3, 32, 3, 7);
     graphics.generateTexture('coffee', 48, 56);
     graphics.destroy();
   }
@@ -421,10 +467,10 @@ export class GameScene extends Phaser.Scene {
     this.addWall(GAME_CONFIG.worldWidth / 2, 112, GAME_CONFIG.worldWidth, 24, COLORS.wall);
     this.addWall(GAME_CONFIG.worldWidth / 2, 712, GAME_CONFIG.worldWidth, 24, COLORS.wall);
 
-    this.addWall(445, 255, 180, 64, 0x3d4b5f);
-    this.addWall(730, 555, 210, 58, 0x3d4b5f);
-    this.addWall(1015, 380, 118, 148, 0x3d4b5f);
-    this.addWall(1300, 230, 100, 120, 0x3d4b5f);
+    this.addWall(445, 255, 180, 64, 0x1e293b);
+    this.addWall(730, 555, 210, 58, 0x334155);
+    this.addWall(1015, 380, 118, 148, 0x1e293b);
+    this.addWall(1300, 230, 100, 120, 0x111827);
 
     this.addWall(2110, 410, 82, 596, 0x991b1b);
     this.addWall(3545, 340, 360, 360, 0x475569);
@@ -432,26 +478,213 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createSubwayVisuals(): void {
-    this.add.rectangle(0, 124, 1420, 18, COLORS.platformStripe).setOrigin(0, 0).setDepth(-5);
+    this.add.rectangle(0, 124, 1420, 580, 0x8491a1).setOrigin(0, 0).setDepth(-18);
+    this.add.rectangle(0, 124, 1420, 112, 0x1e2b3d).setOrigin(0, 0).setDepth(-15);
+    this.add.rectangle(0, 124, 1420, 10, 0x0f172a).setOrigin(0, 0).setDepth(-13);
 
-    for (let x = 70; x < 1400; x += 150) {
-      this.add.rectangle(x, 648, 90, 14, 0x94a3b8, 0.55).setDepth(-5);
+    this.createPlatformScreenDoors();
+    this.createSubwayFloorPattern();
+    this.createSubwayBackgroundCrowd();
+    this.createSubwayPropVisuals();
+
+    this.add
+      .text(28, 266, 'B2  ·  만원 지하철', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '18px',
+        fontStyle: 'bold',
+        color: '#e0f2fe',
+        backgroundColor: '#0f172ad9',
+        padding: { x: 11, y: 6 },
+      })
+      .setDepth(10);
+    this.addWorldLabel(82, 664, '출근 시작', 0xe2e8f0, '#0f172ad9').setOrigin(0.5);
+  }
+
+  private createPlatformScreenDoors(): void {
+    const routeBand = this.add.rectangle(710, 151, 1380, 34, 0x111827, 0.96).setDepth(-11);
+    routeBand.setStrokeStyle(2, 0x334155, 1);
+    this.add
+      .text(36, 139, 'RUSH LINE  ·  한강로  ·  08:58 출근 방면', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '15px',
+        fontStyle: 'bold',
+        color: '#bae6fd',
+        letterSpacing: 1,
+      })
+      .setDepth(-9);
+
+    for (let bay = 0; bay < 7; bay += 1) {
+      const x = 18 + bay * 176;
+      const glass = this.add
+        .rectangle(x, 170, 160, 62, 0x1f3b50, 0.92)
+        .setOrigin(0, 0)
+        .setStrokeStyle(3, 0x64748b, 1)
+        .setDepth(-12);
+      glass.setData('station-layer', 'screen-door');
+      this.add.rectangle(x + 80, 201, 3, 58, 0x94a3b8, 0.9).setDepth(-10);
+      this.add.rectangle(x + 14, 218, 132, 5, 0x38bdf8, 0.75).setDepth(-9);
+      this.add.rectangle(x + 80, 229, 152, 10, 0x111827, 0.7).setDepth(-9);
+
+      for (const silhouetteOffset of [-43, -18, 18, 43]) {
+        this.add.circle(x + 80 + silhouetteOffset, 189, 7, 0x0f172a, 0.66).setDepth(-11);
+        this.add
+          .rectangle(x + 80 + silhouetteOffset, 207, 12, 26, 0x0f172a, 0.62)
+          .setDepth(-11);
+      }
     }
 
-    this.addSectionTitle(70, 156, '1  만원 지하철 탈출');
-    this.addWorldLabel(95, 610, '출발 지점', 0x0f172a);
-    this.addWorldLabel(1260, 615, '지하철 출구 →', 0x0f172a);
+    this.add.rectangle(0, 234, 1420, 18, COLORS.platformStripe, 1).setOrigin(0, 0).setDepth(-7);
+    this.add.rectangle(0, 252, 1420, 5, 0xb91c1c, 0.9).setOrigin(0, 0).setDepth(-7);
+    this.add
+      .text(1090, 237, '안전선 안쪽으로 이동', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '11px',
+        fontStyle: 'bold',
+        color: '#450a0a',
+      })
+      .setDepth(-5);
+  }
 
-    const pillarLocations = [
-      { x: 445, y: 255, label: '기둥' },
-      { x: 730, y: 555, label: '벤치' },
-      { x: 1015, y: 380, label: '환승 안내' },
-      { x: 1300, y: 230, label: '개찰구' },
-    ];
+  private createSubwayFloorPattern(): void {
+    this.add.rectangle(710, 480, 1420, 448, 0x8794a4, 1).setDepth(-17);
+    this.add.rectangle(710, 470, 1280, 150, 0xa3afbc, 0.42).setDepth(-14);
 
-    pillarLocations.forEach(({ x, y, label }) => {
-      this.addWorldLabel(x, y, label, 0x111827, '#f8faf0d9').setOrigin(0.5);
+    for (let x = 0; x <= 1420; x += 72) {
+      this.add.rectangle(x, 478, 2, 452, 0xcbd5e1, 0.19).setDepth(-12);
+    }
+    for (let y = 282; y <= 704; y += 56) {
+      this.add.rectangle(710, y, 1420, 2, 0x475569, 0.2).setDepth(-12);
+    }
+
+    for (let x = 90; x < 1350; x += 42) {
+      this.add.rectangle(x, 641, 28, 10, 0xfacc15, 0.72).setDepth(-7);
+    }
+    for (let x = 170; x < 1280; x += 170) {
+      this.add
+        .text(x, 444, '›', {
+          fontFamily: FONT_FAMILY,
+          fontSize: '38px',
+          fontStyle: 'bold',
+          color: '#dbeafe66',
+        })
+        .setOrigin(0.5)
+        .setDepth(-6);
+    }
+  }
+
+  private createSubwayBackgroundCrowd(): void {
+    const positions = [
+      [95, 300], [132, 305], [170, 292], [205, 304],
+      [345, 338], [382, 325], [420, 340],
+      [565, 300], [602, 310], [640, 296], [678, 312],
+      [835, 596], [872, 605], [910, 590],
+      [1110, 292], [1146, 304], [1182, 290], [1218, 306],
+    ] as const;
+
+    positions.forEach(([x, y], index) => {
+      const passenger = this.add.sprite(x, y, `crowd-${index % GAME_CONFIG.crowdCount}`);
+      passenger
+        .setName('background-crowd')
+        .setScale(0.58 + (index % 3) * 0.04)
+        .setAlpha(0.58)
+        .setTint(index % 4 === 0 ? 0xcbd5e1 : 0xa8b4c3)
+        .setDepth(7 + (y % 2));
     });
+  }
+
+  private createSubwayPropVisuals(): void {
+    const adShadow = this.add.rectangle(450, 262, 190, 72, 0x0f172a, 0.3).setDepth(1);
+    adShadow.setRotation(-0.01);
+    this.add
+      .rectangle(445, 252, 168, 50, 0xe0f2fe, 1)
+      .setStrokeStyle(5, 0x1e293b, 1)
+      .setDepth(2);
+    this.add
+      .text(445, 252, '월요일도\n정시 출근', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '16px',
+        fontStyle: 'bold',
+        color: '#0f172a',
+        align: 'center',
+        lineSpacing: 2,
+      })
+      .setOrigin(0.5)
+      .setDepth(3);
+
+    this.add.rectangle(730, 550, 198, 45, 0x334155, 1).setStrokeStyle(4, 0x1e293b).setDepth(2);
+    for (const x of [650, 690, 730, 770, 810]) {
+      this.add.rectangle(x, 548, 28, 35, 0x64748b, 1).setDepth(3);
+    }
+    this.add.rectangle(650, 588, 10, 24, 0x1e293b).setDepth(2);
+    this.add.rectangle(810, 588, 10, 24, 0x1e293b).setDepth(2);
+
+    this.add
+      .rectangle(1015, 380, 104, 138, 0x2b3545, 1)
+      .setStrokeStyle(5, 0x172033, 1)
+      .setDepth(2);
+    this.add.rectangle(1015, 336, 94, 38, 0x075985, 1).setDepth(3);
+    this.add
+      .text(1015, 336, '2호선  ●\n환승 통로', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '14px',
+        fontStyle: 'bold',
+        color: '#ffffff',
+        align: 'center',
+      })
+      .setOrigin(0.5)
+      .setDepth(4);
+    this.add.rectangle(1015, 410, 82, 46, 0xf8fafc, 0.92).setDepth(3);
+    this.add
+      .text(1015, 410, '← 1번\n3번 →', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '14px',
+        fontStyle: 'bold',
+        color: '#0f172a',
+        align: 'center',
+      })
+      .setOrigin(0.5)
+      .setDepth(4);
+
+    this.add.rectangle(1300, 230, 88, 112, 0x111827, 1).setStrokeStyle(4, 0x475569).setDepth(2);
+    for (const x of [1274, 1300, 1326]) {
+      this.add.rectangle(x, 245, 12, 76, 0x64748b, 1).setDepth(3);
+      this.add.rectangle(x, 215, 18, 22, 0x22c55e, 1).setDepth(4);
+    }
+
+    this.add
+      .rectangle(1150, 580, 220, 104, 0x064e3b, 0.98)
+      .setStrokeStyle(5, 0x6ee7b7, 1)
+      .setDepth(3);
+    this.add
+      .text(1150, 563, '3번 출구  →', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '27px',
+        fontStyle: 'bold',
+        color: '#ffffff',
+      })
+      .setOrigin(0.5)
+      .setDepth(5);
+    this.add
+      .text(1150, 604, 'EXIT  ·  회사 방면', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '15px',
+        fontStyle: 'bold',
+        color: '#a7f3d0',
+        letterSpacing: 1,
+      })
+      .setOrigin(0.5)
+      .setDepth(5);
+    this.add.rectangle(1388, 478, 12, 350, 0x10b981, 0.72).setDepth(-3);
+    this.add
+      .text(1345, 430, '출구 →', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '16px',
+        fontStyle: 'bold',
+        color: '#d1fae5',
+        backgroundColor: '#064e3bd9',
+        padding: { x: 7, y: 4 },
+      })
+      .setDepth(5);
   }
 
   private createRoadAndStopVisuals(): void {
@@ -593,12 +826,16 @@ export class GameScene extends Phaser.Scene {
 
     paths.slice(0, GAME_CONFIG.crowdCount).forEach((path, index) => {
       const [startX, startY, endX, endY] = path;
-      const sprite = this.add.sprite(startX, startY, `crowd-${index}`);
+      const sprite = this.add.sprite(
+        startX,
+        startY,
+        index === 0 ? 'subway-villain' : `crowd-${index}`,
+      );
       sprite.setName('crowd-npc');
       sprite.setDepth(20 + (startY % 5));
       sprite.setScale(0.9 + (index % 3) * 0.06);
 
-      this.crowd.push({
+      const actor: CrowdActor = {
         sprite,
         startX,
         startY,
@@ -606,8 +843,39 @@ export class GameScene extends Phaser.Scene {
         endY,
         targetIsEnd: true,
         speed: GAME_CONFIG.crowdSpeed + (index % 4) * 8,
-      });
+      };
+      this.crowd.push(actor);
+
+      if (index === 0) {
+        this.subwayVillainActor = actor;
+        this.subwayVillainBadge = this.createSubwayVillainBadge(startX, startY - 49);
+      }
     });
+  }
+
+  private createSubwayVillainBadge(x: number, y: number): Phaser.GameObjects.Container {
+    const pill = this.add
+      .rectangle(0, 0, 118, 28, 0x450a0a, 0.96)
+      .setStrokeStyle(2, 0xfb923c, 1);
+    const icon = this.add.circle(-45, 0, 10, 0xef4444, 1);
+    const iconText = this.add
+      .text(-45, -1, '!', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '14px',
+        fontStyle: 'bold',
+        color: '#ffffff',
+      })
+      .setOrigin(0.5);
+    const name = this.add
+      .text(12, 0, '지하철 빌런', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '13px',
+        fontStyle: 'bold',
+        color: '#fed7aa',
+      })
+      .setOrigin(0.5);
+
+    return this.add.container(x, y, [pill, icon, iconText, name]).setDepth(26);
   }
 
   private createQueueNpcs(): void {
@@ -650,10 +918,10 @@ export class GameScene extends Phaser.Scene {
     this.coffeeLabel = this.addWorldLabel(
       COFFEE_X,
       COFFEE_Y + 46,
-      '아이스 아메리카노',
-      0x111827,
-      '#f8faf0e6',
-    ).setOrigin(0.5);
+      '아아 · 카페인 +35%',
+      0xfef3c7,
+      '#422006e8',
+    ).setOrigin(0.5).setDepth(24);
 
     this.resignation = this.add.sprite(RESIGNATION_X, RESIGNATION_Y, 'resignation').setDepth(22);
     this.resignation.setName('resignation-item');
@@ -1081,6 +1349,13 @@ export class GameScene extends Phaser.Scene {
         actor.sprite.x += (dx / distance) * step;
         actor.sprite.y += (dy / distance) * step;
       }
+    }
+
+    if (this.subwayVillainActor && this.subwayVillainBadge) {
+      this.subwayVillainBadge.setPosition(
+        this.subwayVillainActor.sprite.x,
+        this.subwayVillainActor.sprite.y - 49,
+      );
     }
   }
 
@@ -1654,6 +1929,10 @@ export class GameScene extends Phaser.Scene {
       busKind: this.busKind,
       crowdCount: this.crowd.length,
       sceneCrowdCount: this.children.list.filter((child) => child.name === 'crowd-npc').length,
+      backgroundCrowdCount: this.children.list.filter(
+        (child) => child.name === 'background-crowd',
+      ).length,
+      subwayVillainVisible: this.subwayVillainBadge?.visible ?? false,
       sceneBusCount: this.children.list.filter((child) => child.name === 'commute-bus').length,
       objective: this.objective,
       coffeeVisible: this.coffee.visible,
